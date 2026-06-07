@@ -3,10 +3,16 @@ package com.example.gymapp.wear
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.material.Chip
@@ -15,37 +21,43 @@ import androidx.wear.compose.material.ListHeader
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.example.gymapp.TodayStats
+import kotlinx.coroutines.launch
 
 /**
- * Phase 1 scaffold: a read-only glance of today's stats plus a "Start Workout"
- * stub. Data here is a placeholder — the next step wires this up to the phone
- * over the Wearable Data Layer (DataClient for stats, MessageClient for the
- * start-workout command and active-session mirroring).
+ * Glance screen synced with the phone over the Wearable Data Layer:
+ * [WatchWearSync.todayStats] mirrors the phone's dashboard (pushed via
+ * DataClient whenever it refreshes), and the "Start Workout" chip messages
+ * the phone to begin an empty session.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WatchWearSync.init(applicationContext)
         setContent { WearApp() }
     }
 }
 
 @Composable
 fun WearApp() {
-    // Placeholder until phone sync (DataClient) is wired up.
-    val today = TodayStats(steps = "—", calories = "—", heartRate = "—")
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) { WatchWearSync.init(context) }
+    val today by WatchWearSync.todayStats.collectAsState()
+    val stats = today ?: TodayStats(steps = "—", calories = "—", heartRate = "—")
 
     MaterialTheme {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             item { ListHeader { Text("GymLog") } }
-            item { StatRow("Steps", today.steps) }
-            item { StatRow("Calories", today.calories) }
-            item { StatRow("Heart rate", today.heartRate) }
+            item { StatRow("Steps", stats.steps) }
+            item { StatRow("Calories", stats.calories) }
+            item { StatRow("Heart rate", stats.heartRate) }
             item {
                 Chip(
-                    onClick = { /* TODO: send "start workout" message to phone */ },
+                    onClick = { scope.launch { WatchWearSync.sendStartWorkout(context) } },
                     label = { Text("Start Workout") },
                     colors = ChipDefaults.primaryChipColors(),
                     modifier = Modifier.padding(top = 8.dp),

@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         UserStore.init(applicationContext)
         ThemeStore.init(applicationContext)
+        PhoneWearSync.init(applicationContext)
         WorkoutRepository.init(applicationContext)
         RoutineRepository.init(applicationContext)
         enableEdgeToEdge()
@@ -117,6 +118,7 @@ fun GymApp() {
             calories = cals?.let { it.toInt().toString() } ?: "—",
             heartRate = hr?.toString() ?: "—",
         )
+        PhoneWearSync.pushTodayStats(context, todayStats)   // mirror to a paired watch, if any
     }
 
     val hcLauncher = rememberLauncherForActivityResult(
@@ -252,6 +254,15 @@ fun GymApp() {
     // Finish requested from the notification action
     LaunchedEffect(finishRequested) {
         if (finishRequested && timerState.active) finishWorkout()
+    }
+
+    // "Start workout" requested from the watch companion
+    val wearStartRequested by PhoneWearSync.startWorkoutRequested.collectAsState()
+    LaunchedEffect(wearStartRequested) {
+        if (wearStartRequested) {
+            if (!inSession) startEmpty()
+            PhoneWearSync.consumeStartWorkoutRequest()
+        }
     }
 
     val navActive = when (screen) {
