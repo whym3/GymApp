@@ -12,7 +12,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.gymapp.wear"
+        // Must match the phone app's applicationId — the Wearable Data Layer
+        // routes MessageClient/DataClient traffic by matching package + signing
+        // cert between the two installed apps; mismatched IDs fail silently
+        // with "Failed to deliver message to AppKey" in the system logs.
+        applicationId = "com.example.gymapp"
         minSdk = 31
         targetSdk = 36
         versionCode = 1
