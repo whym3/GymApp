@@ -402,6 +402,17 @@ fun GymApp() {
         activeSnapshot?.let { PhoneWearSync.pushActiveWorkout(context, it) }
     }
 
+    // Mirror exercise/set progress to WorkoutProgress so the Live Update
+    // notification (WorkoutService) can render a real progress bar + status chip.
+    val progressExercises = if (inSession) {
+        exercises.map { WorkoutProgress.ExerciseProgress(it.name, it.sets.size, it.sets.count { s -> s.done }) }
+    } else null
+    val progressIndex = if (inSession) watchCurrentTarget()?.first ?: 0 else 0
+    LaunchedEffect(progressExercises, progressIndex) {
+        if (progressExercises != null) WorkoutProgress.update(progressExercises, progressIndex)
+        else WorkoutProgress.clear()
+    }
+
     // Remote-control taps from the watch while a session is running.
     // Reads WorkoutTimer.state.value directly (not the recomposition-scoped
     // `inSession`) since this collector is launched once and must always see
