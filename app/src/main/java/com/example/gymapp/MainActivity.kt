@@ -413,6 +413,14 @@ fun GymApp() {
                             UserStore.logout()
                             screen = Screen.ONBOARDING
                         },
+                        onDeleteAccount = {
+                            endSession()
+                            val ctx = context
+                            WorkoutRepository.deleteAll(ctx)
+                            RoutineRepository.deleteAll(ctx)
+                            UserStore.deleteAccount()
+                            screen = Screen.ONBOARDING
+                        },
                     )
                 }
             }
