@@ -77,13 +77,6 @@ fun HomeScreen(
             }
             Box(modifier = Modifier.clickable { onProfile() }) {
                 ProfileAvatar(size = 46.dp, fontSize = 17.sp)
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .align(Alignment.TopEnd)
-                        .background(AccentColor, CircleShape)
-                        .border(2.dp, BgColor, CircleShape),
-                )
             }
         }
 
@@ -147,25 +140,13 @@ fun HomeScreen(
         Spacer(Modifier.height(20.dp))
 
         // ── Today stats ───────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Today", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextColor)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Box(modifier = Modifier.size(6.dp).background(if (hcConnected) GoodColor else MutedColor, CircleShape))
-                Text(
-                    if (hcConnected) "Health Connect" else "Not connected",
-                    fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MutedColor,
-                )
-            }
-        }
+        Text(
+            "Today",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextColor,
+            modifier = Modifier.padding(horizontal = 20.dp),
+        )
 
         Spacer(Modifier.height(11.dp))
 
