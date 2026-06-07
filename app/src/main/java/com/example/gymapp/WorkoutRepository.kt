@@ -41,6 +41,11 @@ object WorkoutRepository {
         writeToDisk(context)
     }
 
+    fun deleteAll(context: Context) {
+        _workouts.clear()
+        runCatching { file(context).delete() }
+    }
+
     val totalWorkouts: Int get() = _workouts.size
 
     fun workoutsThisWeek(): Int {

@@ -52,6 +52,11 @@ object RoutineRepository {
         writeToDisk(context)
     }
 
+    fun deleteAll(context: Context) {
+        _routines.clear()
+        runCatching { file(context).delete() }
+    }
+
     fun byId(id: Long): Routine? = _routines.firstOrNull { it.id == id }
 
     private fun file(context: Context): File {

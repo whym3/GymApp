@@ -41,8 +41,10 @@ fun ProfileScreen(
     hcGranted: Boolean,
     onManageHealth: () -> Unit,
     onLogout: () -> Unit,
+    onDeleteAccount: () -> Unit,
 ) {
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     var showEditProfile by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
 
@@ -234,6 +236,29 @@ fun ProfileScreen(
                 }
                 Text("Log out", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MuscleChest, modifier = Modifier.weight(1f))
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            val deleteRed = Color(0xFFE05252)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, deleteRed.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                    .background(deleteRed.copy(alpha = 0.08f))
+                    .clickable { showDeleteConfirm = true }
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(13.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(38.dp).background(deleteRed.copy(alpha = 0.13f), RoundedCornerShape(11.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.DeleteForever, null, tint = deleteRed, modifier = Modifier.size(19.dp))
+                }
+                Text("Delete account", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = deleteRed, modifier = Modifier.weight(1f))
+            }
         }
     }
 
@@ -265,6 +290,57 @@ fun ProfileScreen(
     if (showEditProfile) {
         EditProfileDialog(onDismiss = { showEditProfile = false })
     }
+
+    if (showDeleteConfirm) {
+        DeleteAccountDialog(
+            onDismiss = { showDeleteConfirm = false },
+            onConfirm = { showDeleteConfirm = false; onDeleteAccount() },
+        )
+    }
+}
+
+@Composable
+private fun DeleteAccountDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    var input by remember { mutableStateOf("") }
+    val deleteRed = Color(0xFFE05252)
+    val confirmed = input.trim().lowercase() == "delete"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardElevColor,
+        titleContentColor = TextColor,
+        textContentColor = SubTextColor,
+        title = { Text("Delete account?", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("This will permanently delete your account and all saved workouts. This cannot be undone.")
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = { Text("Type \"delete\" to confirm", color = MutedColor, fontSize = 14.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = deleteRed,
+                        unfocusedBorderColor = LineColor,
+                        focusedTextColor = TextColor,
+                        unfocusedTextColor = TextColor,
+                        cursorColor = deleteRed,
+                    ),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = confirmed) {
+                Text("Delete", color = if (confirmed) deleteRed else MutedColor, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = SubTextColor, fontWeight = FontWeight.SemiBold)
+            }
+        },
+    )
 }
 
 @Composable
