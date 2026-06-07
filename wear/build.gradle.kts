@@ -34,6 +34,7 @@ android {
 
 dependencies {
     implementation(project(":shared"))
+    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.wear.compose.material)
     implementation(libs.androidx.wear.compose.foundation)
@@ -41,6 +42,7 @@ dependencies {
     implementation(libs.play.services.wearable)
     implementation(libs.horologist.compose.layout)
     implementation(libs.androidx.health.services.client)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.guava)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)

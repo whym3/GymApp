@@ -7,34 +7,46 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
+import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.ListHeader
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
-import com.example.gymapp.TodayStats
+import com.example.gymapp.Haptics
 import com.example.gymapp.WearSync
 import com.example.gymapp.formatClock
 import com.google.android.horologist.compose.ambient.AmbientAware
 import com.google.android.horologist.compose.ambient.AmbientState
 import kotlinx.coroutines.launch
+
+// The wear module doesn't share the phone app's Material theme, so these
+// mirror its accent / heart-rate / muscle hues for a consistent brand feel.
+private val AccentColor = Color(0xFF4F6EF7)
+private val HeartColor = Color(0xFFF7564F)
+private val RestColor = Color(0xFFF7B23B)
+private val DimColor = Color(0xFF8A8A8A)
 
 /**
  * Single screen synced with the phone over the Wearable Data Layer. Shows the
@@ -88,19 +100,37 @@ private fun IdleScreen() {
     val scope = rememberCoroutineScope()
 
     val today by WatchWearSync.todayStats.collectAsState()
-    val stats = today ?: TodayStats(steps = "—", calories = "—", heartRate = "—")
 
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         item { ListHeader { Text("GymLog") } }
-        item { StatRow("Steps", stats.steps) }
-        item { StatRow("Calories", stats.calories) }
-        item { StatRow("Heart rate", stats.heartRate) }
+        val stats = today
+        if (stats == null) {
+            // The watch hasn't received a snapshot yet — either the phone app
+            // hasn't opened since this watch paired, or the two are out of range.
+            item {
+                Text(
+                    "Waiting for phone…",
+                    color = DimColor,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+        } else {
+            item { StatRow(Icons.AutoMirrored.Rounded.DirectionsWalk, AccentColor, "Steps", stats.steps) }
+            item { StatRow(Icons.Rounded.LocalFireDepartment, AccentColor, "Active", stats.calories) }
+            item { StatRow(Icons.Rounded.MonitorHeart, HeartColor, "Heart rate", stats.heartRate) }
+        }
         item {
             Chip(
-                onClick = { scope.launch { WatchWearSync.sendStartWorkout(context) } },
+                onClick = {
+                    Haptics.workoutStart(context)
+                    scope.launch { WatchWearSync.sendStartWorkout(context) }
+                },
                 label = { Text("Start Workout") },
                 colors = ChipDefaults.primaryChipColors(),
                 modifier = Modifier.padding(top = 8.dp),
@@ -127,40 +157,95 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
 
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         item {
+            // The timer is the single thing a lifter glances at most — give it
+            // the most visual weight and center it so it reads at a glance.
             Text(
                 formatClock(workout.elapsedSec),
-                fontSize = 32.sp,
+                fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
-        item { Text(workout.exerciseName) }
-        item { Text(workout.setProgress) }
+        item {
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    workout.exerciseName,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                )
+                Text(workout.setProgress, color = DimColor, fontSize = 13.sp, textAlign = TextAlign.Center)
+            }
+        }
         workout.restSec?.let { rest ->
-            item { Text("Rest: ${formatClock(rest)}") }
+            item {
+                Text(
+                    "Rest  ${formatClock(rest)}",
+                    color = RestColor,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        if (!workout.running) {
+            item {
+                Text(
+                    "Paused",
+                    color = DimColor,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         onWristBpm?.let { bpm ->
-            item { Text("♥ $bpm bpm") }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Rounded.MonitorHeart,
+                        contentDescription = null,
+                        tint = HeartColor,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("$bpm bpm", color = HeartColor, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
         item {
             Chip(
-                onClick = { scope.launch { WatchWearSync.sendMarkSetDone(context) } },
+                onClick = {
+                    Haptics.repComplete(context)
+                    scope.launch { WatchWearSync.sendMarkSetDone(context) }
+                },
                 label = { Text("Mark set done") },
                 colors = ChipDefaults.primaryChipColors(),
+                modifier = Modifier.padding(top = 6.dp),
             )
         }
         item {
             Chip(
-                onClick = { scope.launch { WatchWearSync.sendTogglePause(context) } },
+                onClick = {
+                    Haptics.repComplete(context)
+                    scope.launch { WatchWearSync.sendTogglePause(context) }
+                },
                 label = { Text(if (workout.running) "Pause" else "Resume") },
                 colors = ChipDefaults.secondaryChipColors(),
             )
         }
         item {
             Chip(
-                onClick = { scope.launch { WatchWearSync.sendFinishWorkout(context) } },
+                onClick = {
+                    Haptics.workoutComplete(context)
+                    scope.launch { WatchWearSync.sendFinishWorkout(context) }
+                },
                 label = { Text("Finish") },
                 colors = ChipDefaults.secondaryChipColors(),
             )
@@ -170,40 +255,64 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
 
 /**
  * Low-power layout shown while the wrist is down. No chips (the screen isn't
- * interactive in ambient) and muted gray text on black to limit burn-in —
- * Wear OS repaints this roughly once a minute via onUpdateAmbient.
+ * interactive in ambient), muted gray-on-black to limit burn-in, and everything
+ * centered so the round display stays balanced — Wear OS repaints this roughly
+ * once a minute via onUpdateAmbient.
  */
 @Composable
 private fun AmbientActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapshot, onWristBpm: Int?) {
-    val dimColor = Color(0xFF8A8A8A)
-
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             formatClock(workout.elapsedSec),
-            fontSize = 32.sp,
+            fontSize = 34.sp,
             fontWeight = FontWeight.Bold,
-            color = dimColor,
+            color = DimColor,
+            textAlign = TextAlign.Center,
         )
-        Text(workout.exerciseName, color = dimColor)
-        Text(workout.setProgress, color = dimColor)
+        Spacer(Modifier.height(6.dp))
+        Text(workout.exerciseName, color = DimColor, textAlign = TextAlign.Center)
+        Text(workout.setProgress, color = DimColor, textAlign = TextAlign.Center)
         workout.restSec?.let { rest ->
-            Text("Rest: ${formatClock(rest)}", color = dimColor)
+            Text("Rest ${formatClock(rest)}", color = DimColor, textAlign = TextAlign.Center)
         }
         onWristBpm?.let { bpm ->
-            Text("♥ $bpm bpm", color = dimColor)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Plain Icon (not the "♥" glyph) — emoji glyphs carry their own
+                // embedded color and would render in saturated red here, which
+                // is exactly the kind of burn-in risk this dim palette avoids.
+                Icon(
+                    Icons.Rounded.MonitorHeart,
+                    contentDescription = null,
+                    tint = DimColor,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("$bpm bpm", color = DimColor, textAlign = TextAlign.Center)
+            }
         }
         if (!workout.running) {
-            Text("Paused", color = dimColor)
+            Text("Paused", color = DimColor, textAlign = TextAlign.Center)
         }
     }
 }
 
 @Composable
-private fun StatRow(label: String, value: String) {
-    Text("$label: $value", modifier = Modifier.padding(horizontal = 12.dp))
+private fun StatRow(icon: ImageVector, tint: Color, label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label, color = DimColor, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, fontWeight = FontWeight.SemiBold)
+    }
 }
