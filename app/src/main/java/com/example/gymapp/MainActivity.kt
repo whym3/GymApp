@@ -71,6 +71,12 @@ private fun firstUndoneSet(exercises: List<WorkoutExercise>): Pair<Int, Int>? {
     return null
 }
 
+/** Renders a watch weight nudge (kg, possibly fractional) the way the phone's text fields would: no trailing ".0". */
+private fun formatWeightKg(value: Double): String {
+    val rounded = Math.round(value * 10) / 10.0
+    return if (rounded == Math.floor(rounded)) rounded.toLong().toString() else rounded.toString()
+}
+
 private fun activeWorkoutLabel(exercises: List<WorkoutExercise>): Pair<String, String> {
     val current = firstUndoneSet(exercises)
     return if (current != null) {
@@ -113,6 +119,8 @@ fun GymApp() {
     var sessionStartMillis by remember { mutableLongStateOf(0L) }
     var liveHeartRate by remember { mutableStateOf<Int?>(null) }
     var finishedAvgHr by remember { mutableStateOf<Int?>(null) }
+    // Which exercise the watch remote is targeting, if the user picked one there — see watchCurrentTarget()
+    var watchSelectedExerciseIndex by remember { mutableStateOf<Int?>(null) }
 
     // Selections for detail screens
     var selectedTemplate by remember { mutableStateOf<WorkoutTemplate?>(null) }
@@ -201,6 +209,7 @@ fun GymApp() {
         sessionStartMillis = System.currentTimeMillis()
         liveHeartRate = null
         finishedAvgHr = null
+        watchSelectedExerciseIndex = null
         PhoneWearSync.clearWatchHeartRate()
         Haptics.workoutStart(context)     // firm buzz on start
         WorkoutTimer.start()
@@ -225,15 +234,61 @@ fun GymApp() {
             Haptics.repComplete(context)  // soft tap on set complete
         }
     }
-    /** Marks the first not-yet-done set — what the watch remote's "Done" tap targets. */
+    fun addSet(ei: Int) {
+        val ex = exercises[ei]
+        val lastPrev = ex.sets.lastOrNull()?.prev ?: "—"
+        exercises[ei] = ex.copy(sets = ex.sets + SetData(lastPrev, "", "", false))
+    }
+    /**
+     * Exercise/set the watch remote acts on: the one the user picked from the
+     * watch ([watchSelectedExerciseIndex]), or — absent a pick, or once that
+     * exercise's sets are all done — the first not-yet-done set overall.
+     */
+    fun watchCurrentTarget(): Pair<Int, Int>? {
+        val picked = watchSelectedExerciseIndex?.takeIf { it in exercises.indices }
+        if (picked != null) {
+            val sets = exercises[picked].sets
+            if (sets.isNotEmpty()) {
+                val si = sets.indexOfFirst { !it.done }.takeIf { it >= 0 } ?: sets.lastIndex
+                return picked to si
+            }
+        }
+        return firstUndoneSet(exercises)
+    }
+    /** Marks the watch remote's current target set done. */
     fun markCurrentSetDone() {
-        firstUndoneSet(exercises)?.let { (ei, si) -> markSetDone(ei, si) }
+        watchCurrentTarget()?.let { (ei, si) -> markSetDone(ei, si) }
+    }
+    fun adjustCurrentWeight(deltaKg: Double) {
+        val (ei, si) = watchCurrentTarget() ?: return
+        val ex = exercises[ei]
+        val sets = ex.sets.toMutableList()
+        val updated = ((sets[si].weight.toDoubleOrNull() ?: 0.0) + deltaKg).coerceAtLeast(0.0)
+        sets[si] = sets[si].copy(weight = formatWeightKg(updated))
+        exercises[ei] = ex.copy(sets = sets)
+    }
+    fun adjustCurrentReps(delta: Int) {
+        val (ei, si) = watchCurrentTarget() ?: return
+        val ex = exercises[ei]
+        val sets = ex.sets.toMutableList()
+        val updated = ((sets[si].reps.toIntOrNull() ?: 0) + delta).coerceAtLeast(0)
+        sets[si] = sets[si].copy(reps = updated.toString())
+        exercises[ei] = ex.copy(sets = sets)
     }
 
     fun finishWorkout() {
         Haptics.workoutComplete(context)  // two short pulses on finish
         finishedElapsed = WorkoutTimer.elapsed
         summaryData = buildSummary(sessionTitle, finishedElapsed, exercises.toList())
+        summaryData?.let { data ->
+            // Glanceable recap for the watch — sent before clearActiveWorkout()
+            // below drops it back to idle, so it has something to show first.
+            val volumeKg = data.vol.replace(",", "").toIntOrNull() ?: 0
+            PhoneWearSync.pushWorkoutSummary(
+                context,
+                WearSync.WorkoutSummary(durationSec = finishedElapsed, totalSets = data.sets, totalVolumeKg = volumeKg),
+            )
+        }
         // Pull the heart rate recorded across the workout window from Health Connect.
         val startMs = sessionStartMillis
         val fallback = liveHeartRate
@@ -250,7 +305,7 @@ fun GymApp() {
     fun endSession() {
         WorkoutTimer.stop()               // service observes this and removes the notification
         exercises.clear(); rest = null; summaryData = null; finishedElapsed = 0
-        liveHeartRate = null; finishedAvgHr = null
+        liveHeartRate = null; finishedAvgHr = null; watchSelectedExerciseIndex = null
         PhoneWearSync.clearWatchHeartRate()
         PhoneWearSync.clearActiveWorkout(context)
     }
@@ -314,15 +369,26 @@ fun GymApp() {
         }
     }
 
-    // Mirror the in-progress session to the watch on every change
+    // Mirror the in-progress session to the watch on every change, including
+    // which exercise/set the remote currently targets (see watchCurrentTarget)
+    // and that set's editable values, so the watch can show +/- controls for them.
     val activeSnapshot = if (inSession) {
-        val (exerciseName, setProgress) = activeWorkoutLabel(exercises)
+        val target = watchCurrentTarget()
+        val targetEx = target?.let { exercises.getOrNull(it.first) }
+        val targetSet = target?.let { (ei, si) -> exercises.getOrNull(ei)?.sets?.getOrNull(si) }
+        val (exerciseName, setProgress) = if (target != null && targetEx != null) {
+            targetEx.name to "Set ${target.second + 1} of ${targetEx.sets.size}"
+        } else activeWorkoutLabel(exercises)
         WearSync.ActiveWorkoutSnapshot(
             running = timerState.running,
             elapsedSec = timerState.elapsedSec,
             exerciseName = exerciseName,
             setProgress = setProgress,
             restSec = rest,
+            exercises = exercises.map { it.name },
+            currentExerciseIndex = target?.first ?: 0,
+            currentWeight = targetSet?.weight.orEmpty(),
+            currentReps = targetSet?.reps.orEmpty(),
         )
     } else null
     LaunchedEffect(activeSnapshot) {
@@ -340,7 +406,27 @@ fun GymApp() {
                 ActiveWorkoutCommand.TOGGLE_PAUSE -> WorkoutTimer.toggle()
                 ActiveWorkoutCommand.MARK_SET_DONE -> markCurrentSetDone()
                 ActiveWorkoutCommand.FINISH_WORKOUT -> finishWorkout()
+                ActiveWorkoutCommand.ADD_SET -> watchCurrentTarget()?.let { (ei, _) -> addSet(ei) }
+                ActiveWorkoutCommand.ADD_REST -> rest = (rest ?: 0) + 15
+                ActiveWorkoutCommand.SKIP_REST -> rest = null
             }
+        }
+    }
+    LaunchedEffect(Unit) {
+        PhoneWearSync.selectExerciseRequests.collect { index ->
+            if (WorkoutTimer.state.value.active && index in exercises.indices) {
+                watchSelectedExerciseIndex = index
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        PhoneWearSync.weightAdjustments.collect { delta ->
+            if (WorkoutTimer.state.value.active) adjustCurrentWeight(delta)
+        }
+    }
+    LaunchedEffect(Unit) {
+        PhoneWearSync.repAdjustments.collect { delta ->
+            if (WorkoutTimer.state.value.active) adjustCurrentReps(delta)
         }
     }
 
@@ -442,11 +528,7 @@ fun GymApp() {
                             exercises[ei] = ex.copy(sets = sets)
                         },
                         onToggleSet = { ei, si -> markSetDone(ei, si) },
-                        onAddSet = { ei ->
-                            val ex = exercises[ei]
-                            val lastPrev = ex.sets.lastOrNull()?.prev ?: "—"
-                            exercises[ei] = ex.copy(sets = ex.sets + SetData(lastPrev, "", "", false))
-                        },
+                        onAddSet = { ei -> addSet(ei) },
                         onAddRest = { rest = (rest ?: 0) + 15 },
                         onSkipRest = { rest = null },
                     )

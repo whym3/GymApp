@@ -1,5 +1,6 @@
 package com.example.gymapp
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -28,17 +29,71 @@ object WearSync {
     /** Watch → phone: end the session and jump to the summary screen. No payload. */
     const val PATH_FINISH_WORKOUT = "/gymapp/finish-workout"
 
+    /** Watch → phone: make the given exercise (by zero-based index) the remote's target. Payload: index as a UTF-8 string. */
+    const val PATH_SELECT_EXERCISE = "/gymapp/select-exercise"
+
+    /** Watch → phone: nudge the current set's weight by a signed delta, in kg. Payload: decimal string, e.g. "2.5" or "-2.5". */
+    const val PATH_ADJUST_WEIGHT = "/gymapp/adjust-weight"
+
+    /** Watch → phone: nudge the current set's rep count by a signed delta. Payload: integer string, e.g. "1" or "-1". */
+    const val PATH_ADJUST_REPS = "/gymapp/adjust-reps"
+
+    /** Watch → phone: append another set to the current exercise. No payload. */
+    const val PATH_ADD_SET = "/gymapp/add-set"
+
+    /** Watch → phone: extend the running rest timer (phone adds its usual 15s bump). No payload. */
+    const val PATH_ADD_REST = "/gymapp/add-rest"
+
+    /** Watch → phone: cancel the running rest timer early. No payload. */
+    const val PATH_SKIP_REST = "/gymapp/skip-rest"
+
+    /** Phone → watch: one-shot glanceable recap pushed the moment a session finishes. */
+    const val PATH_WORKOUT_SUMMARY = "/gymapp/workout-summary"
+
     /** Watch → phone: live on-wrist heart rate reading during a session, in BPM. */
     const val PATH_HEART_RATE = "/gymapp/heart-rate"
 
-    /** Bare-bones mirror of the active session, just enough for an at-a-glance watch screen. */
+    /**
+     * Mirror of the active session for the watch screen. [exercises] lists every
+     * exercise's name so the watch can offer a picker; [currentExerciseIndex]
+     * is which of those the remote currently targets (mark-done / weight / reps
+     * / add-set all act on it), and [currentWeight]/[currentReps] are that
+     * target set's editable values, shown next to the +/- adjust controls.
+     */
     data class ActiveWorkoutSnapshot(
         val running: Boolean,
         val elapsedSec: Int,
         val exerciseName: String,
         val setProgress: String,
         val restSec: Int?,
+        val exercises: List<String> = emptyList(),
+        val currentExerciseIndex: Int = 0,
+        val currentWeight: String = "",
+        val currentReps: String = "",
     )
+
+    /** Glanceable recap shown on the watch right after a session ends, before it returns to idle. */
+    data class WorkoutSummary(
+        val durationSec: Int,
+        val totalSets: Int,
+        val totalVolumeKg: Int,
+    )
+
+    fun encodeWorkoutSummary(s: WorkoutSummary): String =
+        JSONObject()
+            .put("durationSec", s.durationSec)
+            .put("totalSets", s.totalSets)
+            .put("totalVolumeKg", s.totalVolumeKg)
+            .toString()
+
+    fun decodeWorkoutSummary(json: String): WorkoutSummary? = runCatching {
+        val o = JSONObject(json)
+        WorkoutSummary(
+            durationSec = o.optInt("durationSec"),
+            totalSets = o.optInt("totalSets"),
+            totalVolumeKg = o.optInt("totalVolumeKg"),
+        )
+    }.getOrNull()
 
     fun encodeTodayStats(stats: TodayStats): String =
         JSONObject()
@@ -67,16 +122,35 @@ object WearSync {
             .put("exerciseName", s.exerciseName)
             .put("setProgress", s.setProgress)
             .put("restSec", s.restSec ?: JSONObject.NULL)
+            .put("exercises", JSONArray(s.exercises))
+            .put("currentExerciseIndex", s.currentExerciseIndex)
+            .put("currentWeight", s.currentWeight)
+            .put("currentReps", s.currentReps)
             .toString()
 
     fun decodeActiveWorkout(json: String): ActiveWorkoutSnapshot? = runCatching {
         val o = JSONObject(json)
+        val names = o.optJSONArray("exercises")
         ActiveWorkoutSnapshot(
             running = o.getBoolean("running"),
             elapsedSec = o.getInt("elapsedSec"),
             exerciseName = o.getString("exerciseName"),
             setProgress = o.getString("setProgress"),
             restSec = if (o.isNull("restSec")) null else o.getInt("restSec"),
+            exercises = if (names != null) List(names.length()) { names.getString(it) } else emptyList(),
+            currentExerciseIndex = o.optInt("currentExerciseIndex", 0),
+            currentWeight = o.optString("currentWeight", ""),
+            currentReps = o.optString("currentReps", ""),
         )
     }.getOrNull()
+
+    fun encodeIndex(index: Int): ByteArray = index.toString().toByteArray(Charsets.UTF_8)
+
+    fun decodeIndex(bytes: ByteArray): Int? = String(bytes, Charsets.UTF_8).toIntOrNull()
+
+    fun encodeDelta(delta: Number): ByteArray = delta.toString().toByteArray(Charsets.UTF_8)
+
+    fun decodeWeightDelta(bytes: ByteArray): Double? = String(bytes, Charsets.UTF_8).toDoubleOrNull()
+
+    fun decodeRepsDelta(bytes: ByteArray): Int? = String(bytes, Charsets.UTF_8).toDoubleOrNull()?.toInt()
 }
