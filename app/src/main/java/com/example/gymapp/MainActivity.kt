@@ -3,6 +3,7 @@ package com.example.gymapp
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -102,6 +103,9 @@ fun GymApp() {
     var hcGranted by remember { mutableStateOf(false) }
     var todayStats by remember { mutableStateOf(TodayStats("—", "—", "—")) }
     var isRefreshing by remember { mutableStateOf(false) }
+
+    // lastBackPressMs tracked here so it survives recompositions
+    var lastBackPressMs by remember { mutableLongStateOf(0L) }
 
     suspend fun loadDashboard() {
         hcGranted = manager.hasAnyPermission()
@@ -215,6 +219,34 @@ fun GymApp() {
             ),
         )
         endSession(); screen = Screen.HOME
+    }
+
+    // Back navigation — defined after all action funs so lambdas can reference them
+    BackHandler(enabled = screen != Screen.ONBOARDING) {
+        when (screen) {
+            // Root: double-tap to exit
+            Screen.HOME -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressMs < 2000L) {
+                    (context as? ComponentActivity)?.finish()
+                } else {
+                    lastBackPressMs = now
+                    Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                }
+            }
+            // Bottom-nav tabs → back to Home
+            Screen.WORKOUT_LANDING, Screen.HISTORY, Screen.PROGRESS -> screen = Screen.HOME
+            // Secondary screens → return to their origin
+            Screen.CREATE_ROUTINE  -> screen = Screen.WORKOUT_LANDING
+            Screen.TEMPLATE_DETAIL -> screen = backStackScreen
+            Screen.ACTIVE_WORKOUT  -> screen = Screen.WORKOUT_LANDING
+            Screen.SUMMARY         -> { endSession(); screen = Screen.HOME }
+            Screen.WORKOUT_DETAIL  -> screen = backStackScreen
+            Screen.PROFILE         -> screen = backStackScreen
+            Screen.HEART_RATE      -> screen = backStackScreen
+            Screen.STEPS           -> screen = backStackScreen
+            else -> {}
+        }
     }
 
     // Finish requested from the notification action
