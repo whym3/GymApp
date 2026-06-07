@@ -29,6 +29,10 @@ object WatchWearSync {
     private val _activeWorkout = MutableStateFlow<WearSync.ActiveWorkoutSnapshot?>(null)
     val activeWorkout: StateFlow<WearSync.ActiveWorkoutSnapshot?> = _activeWorkout.asStateFlow()
 
+    /** One-shot recap pushed the moment a session finishes — shown briefly, then [consumeWorkoutSummary] clears it. */
+    private val _workoutSummary = MutableStateFlow<WearSync.WorkoutSummary?>(null)
+    val workoutSummary: StateFlow<WearSync.WorkoutSummary?> = _workoutSummary.asStateFlow()
+
     private var listener: DataClient.OnDataChangedListener? = null
 
     fun init(context: Context) {
@@ -51,7 +55,7 @@ object WatchWearSync {
 
     private fun applyDataEvent(event: DataEvent) {
         when (event.dataItem.uri.path) {
-            WearSync.PATH_TODAY_STATS, WearSync.PATH_ACTIVE_WORKOUT -> {
+            WearSync.PATH_TODAY_STATS, WearSync.PATH_ACTIVE_WORKOUT, WearSync.PATH_WORKOUT_SUMMARY -> {
                 if (event.type == DataEvent.TYPE_DELETED) {
                     if (event.dataItem.uri.path == WearSync.PATH_ACTIVE_WORKOUT) _activeWorkout.value = null
                 } else {
@@ -67,7 +71,13 @@ object WatchWearSync {
         when (path) {
             WearSync.PATH_TODAY_STATS -> WearSync.decodeTodayStats(json)?.let { _todayStats.value = it }
             WearSync.PATH_ACTIVE_WORKOUT -> WearSync.decodeActiveWorkout(json)?.let { _activeWorkout.value = it }
+            WearSync.PATH_WORKOUT_SUMMARY -> WearSync.decodeWorkoutSummary(json)?.let { _workoutSummary.value = it }
         }
+    }
+
+    /** Dismiss the recap once the wearer has glanced at it (or it's timed out). */
+    fun consumeWorkoutSummary() {
+        _workoutSummary.value = null
     }
 
     /** Ask the phone to start an empty workout session. */
@@ -81,6 +91,27 @@ object WatchWearSync {
 
     /** End the session and jump to the summary screen. */
     suspend fun sendFinishWorkout(context: Context) = sendCommand(context, WearSync.PATH_FINISH_WORKOUT)
+
+    /** Make the given exercise (zero-based index into [WearSync.ActiveWorkoutSnapshot.exercises]) the remote's target. */
+    suspend fun sendSelectExercise(context: Context, index: Int) =
+        sendMessage(context, WearSync.PATH_SELECT_EXERCISE, WearSync.encodeIndex(index))
+
+    /** Nudge the current set's weight by a signed delta, in kg. */
+    suspend fun sendAdjustWeight(context: Context, deltaKg: Double) =
+        sendMessage(context, WearSync.PATH_ADJUST_WEIGHT, WearSync.encodeDelta(deltaKg))
+
+    /** Nudge the current set's rep count by a signed delta. */
+    suspend fun sendAdjustReps(context: Context, delta: Int) =
+        sendMessage(context, WearSync.PATH_ADJUST_REPS, WearSync.encodeDelta(delta))
+
+    /** Append another set to the current exercise. */
+    suspend fun sendAddSet(context: Context) = sendCommand(context, WearSync.PATH_ADD_SET)
+
+    /** Extend the running rest timer by the phone's usual bump. */
+    suspend fun sendAddRest(context: Context) = sendCommand(context, WearSync.PATH_ADD_REST)
+
+    /** Cancel the running rest timer early. */
+    suspend fun sendSkipRest(context: Context) = sendCommand(context, WearSync.PATH_SKIP_REST)
 
     /** Relay a live on-wrist heart rate reading (from [WatchHeartRateMonitor]) to the phone. */
     suspend fun sendHeartRate(context: Context, bpm: Int) =
