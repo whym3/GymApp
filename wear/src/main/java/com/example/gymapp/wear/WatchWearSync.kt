@@ -26,48 +26,69 @@ object WatchWearSync {
     private val _todayStats = MutableStateFlow<TodayStats?>(null)
     val todayStats: StateFlow<TodayStats?> = _todayStats.asStateFlow()
 
+    private val _activeWorkout = MutableStateFlow<WearSync.ActiveWorkoutSnapshot?>(null)
+    val activeWorkout: StateFlow<WearSync.ActiveWorkoutSnapshot?> = _activeWorkout.asStateFlow()
+
     private var listener: DataClient.OnDataChangedListener? = null
 
     fun init(context: Context) {
         if (listener != null) return
         val l = DataClient.OnDataChangedListener { events ->
-            events.forEach { event ->
-                if (event.type == DataEvent.TYPE_CHANGED && event.dataItem.uri.path == WearSync.PATH_TODAY_STATS) {
-                    val bytes = event.dataItem.data
-                    if (bytes != null) {
-                        WearSync.decodeTodayStats(String(bytes, Charsets.UTF_8))?.let { _todayStats.value = it }
-                    }
-                }
-            }
+            events.forEach { event -> applyDataEvent(event) }
         }
         listener = l
         val client = Wearable.getDataClient(context.applicationContext)
         client.addListener(l)
 
         // Seed from whatever's already synced — the phone may have pushed
-        // stats before this listener was registered, and OnDataChangedListener
+        // data before this listener was registered, and OnDataChangedListener
         // only fires for changes that happen *after* registration.
         client.dataItems.addOnSuccessListener { buffer ->
-            buffer.forEach { item ->
-                if (item.uri.path == WearSync.PATH_TODAY_STATS) {
-                    val bytes = item.data
-                    if (bytes != null) {
-                        WearSync.decodeTodayStats(String(bytes, Charsets.UTF_8))?.let { _todayStats.value = it }
-                    }
-                }
-            }
+            buffer.forEach { item -> applyDataItem(item.uri.path, item.data) }
             buffer.release()
         }.addOnFailureListener { Log.e(TAG, "startup snapshot: failed to fetch data items", it) }
     }
 
+    private fun applyDataEvent(event: DataEvent) {
+        when (event.dataItem.uri.path) {
+            WearSync.PATH_TODAY_STATS, WearSync.PATH_ACTIVE_WORKOUT -> {
+                if (event.type == DataEvent.TYPE_DELETED) {
+                    if (event.dataItem.uri.path == WearSync.PATH_ACTIVE_WORKOUT) _activeWorkout.value = null
+                } else {
+                    applyDataItem(event.dataItem.uri.path, event.dataItem.data)
+                }
+            }
+        }
+    }
+
+    private fun applyDataItem(path: String?, bytes: ByteArray?) {
+        if (bytes == null) return
+        val json = String(bytes, Charsets.UTF_8)
+        when (path) {
+            WearSync.PATH_TODAY_STATS -> WearSync.decodeTodayStats(json)?.let { _todayStats.value = it }
+            WearSync.PATH_ACTIVE_WORKOUT -> WearSync.decodeActiveWorkout(json)?.let { _activeWorkout.value = it }
+        }
+    }
+
     /** Ask the phone to start an empty workout session. */
-    suspend fun sendStartWorkout(context: Context) = withContext(Dispatchers.IO) {
+    suspend fun sendStartWorkout(context: Context) = sendCommand(context, WearSync.PATH_START_WORKOUT)
+
+    /** Pause/resume the running timer. */
+    suspend fun sendTogglePause(context: Context) = sendCommand(context, WearSync.PATH_TOGGLE_PAUSE)
+
+    /** Mark the current set done and kick off the rest timer. */
+    suspend fun sendMarkSetDone(context: Context) = sendCommand(context, WearSync.PATH_MARK_SET_DONE)
+
+    /** End the session and jump to the summary screen. */
+    suspend fun sendFinishWorkout(context: Context) = sendCommand(context, WearSync.PATH_FINISH_WORKOUT)
+
+    private suspend fun sendCommand(context: Context, path: String) = withContext(Dispatchers.IO) {
         val ctx = context.applicationContext
         val nodes = runCatching { Tasks.await(Wearable.getNodeClient(ctx).connectedNodes) }.getOrDefault(emptyList())
         nodes.forEach { node ->
             runCatching {
-                Tasks.await(Wearable.getMessageClient(ctx).sendMessage(node.id, WearSync.PATH_START_WORKOUT, ByteArray(0)))
-            }.onFailure { Log.e(TAG, "sendStartWorkout: failed to send to ${node.displayName}", it) }
+                Tasks.await(Wearable.getMessageClient(ctx).sendMessage(node.id, path, ByteArray(0)))
+            }.onFailure { Log.e(TAG, "sendCommand($path): failed to send to ${node.displayName}", it) }
         }
     }
 }

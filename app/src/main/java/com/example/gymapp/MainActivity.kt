@@ -62,6 +62,25 @@ private fun newSessionExercise(lib: ExerciseLibraryItem): WorkoutExercise =
         sets = listOf(SetData("—", "", "", false)),
     )
 
+/** First exercise/set that isn't marked done yet — what the watch remote calls "current". */
+private fun firstUndoneSet(exercises: List<WorkoutExercise>): Pair<Int, Int>? {
+    for (ei in exercises.indices) {
+        val si = exercises[ei].sets.indexOfFirst { !it.done }
+        if (si >= 0) return ei to si
+    }
+    return null
+}
+
+private fun activeWorkoutLabel(exercises: List<WorkoutExercise>): Pair<String, String> {
+    val current = firstUndoneSet(exercises)
+    return if (current != null) {
+        val (ei, si) = current
+        exercises[ei].name to "Set ${si + 1} of ${exercises[ei].sets.size}"
+    } else {
+        (exercises.lastOrNull()?.name ?: "—") to "All sets done"
+    }
+}
+
 private fun repeatSessionExercise(ex: WorkoutExercise): WorkoutExercise =
     WorkoutExercise(
         id = "ex-${ex.name}-${System.nanoTime()}",
@@ -184,6 +203,22 @@ fun GymApp() {
     fun repeatWorkout(w: SavedWorkout) =
         beginSession(w.title, w.exercises.map(::repeatSessionExercise), openSearch = false)
 
+    fun markSetDone(ei: Int, si: Int) {
+        val ex = exercises[ei]
+        val sets = ex.sets.toMutableList()
+        val nowDone = !sets[si].done
+        sets[si] = sets[si].copy(done = nowDone)
+        exercises[ei] = ex.copy(sets = sets)
+        if (nowDone) {
+            rest = 90
+            Haptics.repComplete(context)  // soft tap on set complete
+        }
+    }
+    /** Marks the first not-yet-done set — what the watch remote's "Done" tap targets. */
+    fun markCurrentSetDone() {
+        firstUndoneSet(exercises)?.let { (ei, si) -> markSetDone(ei, si) }
+    }
+
     fun finishWorkout() {
         Haptics.workoutComplete(context)  // two short pulses on finish
         finishedElapsed = WorkoutTimer.elapsed
@@ -198,12 +233,14 @@ fun GymApp() {
         // Going inactive makes the service tear down its own notification & stop.
         WorkoutTimer.stop()
         rest = null
+        PhoneWearSync.clearActiveWorkout(context)   // watch goes back to its idle screen
         screen = Screen.SUMMARY
     }
     fun endSession() {
         WorkoutTimer.stop()               // service observes this and removes the notification
         exercises.clear(); rest = null; summaryData = null; finishedElapsed = 0
         liveHeartRate = null; finishedAvgHr = null
+        PhoneWearSync.clearActiveWorkout(context)
     }
     fun saveWorkout() {
         val now = System.currentTimeMillis()
@@ -262,6 +299,36 @@ fun GymApp() {
         if (wearStartRequested) {
             if (!inSession) startEmpty()
             PhoneWearSync.consumeStartWorkoutRequest()
+        }
+    }
+
+    // Mirror the in-progress session to the watch on every change
+    val activeSnapshot = if (inSession) {
+        val (exerciseName, setProgress) = activeWorkoutLabel(exercises)
+        WearSync.ActiveWorkoutSnapshot(
+            running = timerState.running,
+            elapsedSec = timerState.elapsedSec,
+            exerciseName = exerciseName,
+            setProgress = setProgress,
+            restSec = rest,
+        )
+    } else null
+    LaunchedEffect(activeSnapshot) {
+        activeSnapshot?.let { PhoneWearSync.pushActiveWorkout(context, it) }
+    }
+
+    // Remote-control taps from the watch while a session is running.
+    // Reads WorkoutTimer.state.value directly (not the recomposition-scoped
+    // `inSession`) since this collector is launched once and must always see
+    // the live session state, not whatever it was when first composed.
+    LaunchedEffect(Unit) {
+        PhoneWearSync.activeWorkoutCommands.collect { command ->
+            if (!WorkoutTimer.state.value.active) return@collect
+            when (command) {
+                ActiveWorkoutCommand.TOGGLE_PAUSE -> WorkoutTimer.toggle()
+                ActiveWorkoutCommand.MARK_SET_DONE -> markCurrentSetDone()
+                ActiveWorkoutCommand.FINISH_WORKOUT -> finishWorkout()
+            }
         }
     }
 
@@ -362,17 +429,7 @@ fun GymApp() {
                             }
                             exercises[ei] = ex.copy(sets = sets)
                         },
-                        onToggleSet = { ei, si ->
-                            val ex = exercises[ei]
-                            val sets = ex.sets.toMutableList()
-                            val nowDone = !sets[si].done
-                            sets[si] = sets[si].copy(done = nowDone)
-                            exercises[ei] = ex.copy(sets = sets)
-                            if (nowDone) {
-                                rest = 90
-                                Haptics.repComplete(context)  // soft tap on set complete
-                            }
-                        },
+                        onToggleSet = { ei, si -> markSetDone(ei, si) },
                         onAddSet = { ei ->
                             val ex = exercises[ei]
                             val lastPrev = ex.sets.lastOrNull()?.prev ?: "—"
