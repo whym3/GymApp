@@ -53,6 +53,15 @@ object WearSync {
     /** Watch → phone: live on-wrist heart rate reading during a session, in BPM. */
     const val PATH_HEART_RATE = "/gymapp/heart-rate"
 
+    /** Phone → watch: lightweight list of past workouts for the watch's history browser, pushed whenever it changes. */
+    const val PATH_WORKOUT_HISTORY = "/gymapp/workout-history"
+
+    /** Watch → phone: ask for one saved workout's full detail, by id. Payload: id as a UTF-8 string. */
+    const val PATH_REQUEST_WORKOUT_DETAIL = "/gymapp/request-workout-detail"
+
+    /** Phone → watch: one saved workout's full detail, sent in reply to [PATH_REQUEST_WORKOUT_DETAIL]. */
+    const val PATH_WORKOUT_DETAIL = "/gymapp/workout-detail"
+
     /**
      * Mirror of the active session for the watch screen. [exercises] lists every
      * exercise's name so the watch can offer a picker; [currentExerciseIndex]
@@ -78,6 +87,116 @@ object WearSync {
         val totalSets: Int,
         val totalVolumeKg: Int,
     )
+
+    /** Lightweight stand-in for [SavedWorkout] sized for the watch's scrollable history list — no per-set detail. */
+    data class WorkoutHistoryEntry(
+        val id: Long,
+        val title: String,
+        val dateMillis: Long,
+        val durationSec: Int,
+        val totalVolumeKg: Double,
+        val totalSets: Int,
+        val muscleGroups: List<String>,
+    )
+
+    fun encodeWorkoutHistory(entries: List<WorkoutHistoryEntry>): String =
+        JSONArray().apply {
+            entries.forEach { e ->
+                put(
+                    JSONObject()
+                        .put("id", e.id)
+                        .put("title", e.title)
+                        .put("dateMillis", e.dateMillis)
+                        .put("durationSec", e.durationSec)
+                        .put("totalVolumeKg", e.totalVolumeKg)
+                        .put("totalSets", e.totalSets)
+                        .put("muscleGroups", JSONArray(e.muscleGroups))
+                )
+            }
+        }.toString()
+
+    fun decodeWorkoutHistory(json: String): List<WorkoutHistoryEntry> = runCatching {
+        val arr = JSONArray(json)
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val groups = o.optJSONArray("muscleGroups")
+            WorkoutHistoryEntry(
+                id = o.getLong("id"),
+                title = o.getString("title"),
+                dateMillis = o.getLong("dateMillis"),
+                durationSec = o.getInt("durationSec"),
+                totalVolumeKg = o.getDouble("totalVolumeKg"),
+                totalSets = o.getInt("totalSets"),
+                muscleGroups = if (groups != null) List(groups.length()) { groups.getString(it) } else emptyList(),
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    fun encodeId(id: Long): ByteArray = id.toString().toByteArray(Charsets.UTF_8)
+
+    fun decodeId(bytes: ByteArray): Long? = String(bytes, Charsets.UTF_8).toLongOrNull()
+
+    /** Full detail for one saved workout, including every exercise and set — sent on demand, not pushed proactively. */
+    fun encodeSavedWorkout(w: SavedWorkout): String =
+        JSONObject()
+            .put("id", w.id)
+            .put("title", w.title)
+            .put("dateMillis", w.dateMillis)
+            .put("durationSec", w.durationSec)
+            .put("totalVolumeKg", w.totalVolumeKg)
+            .put("totalSets", w.totalSets)
+            .put("avgHeartRate", w.avgHeartRate ?: JSONObject.NULL)
+            .put(
+                "exercises",
+                JSONArray().apply {
+                    w.exercises.forEach { ex ->
+                        put(
+                            JSONObject()
+                                .put("id", ex.id)
+                                .put("name", ex.name)
+                                .put("group", ex.group)
+                                .put(
+                                    "sets",
+                                    JSONArray().apply {
+                                        ex.sets.forEach { s ->
+                                            put(JSONObject().put("weight", s.weight).put("reps", s.reps))
+                                        }
+                                    },
+                                )
+                        )
+                    }
+                },
+            )
+            .toString()
+
+    fun decodeSavedWorkout(json: String): SavedWorkout? = runCatching {
+        val o = JSONObject(json)
+        val exArr = o.getJSONArray("exercises")
+        val exercises = (0 until exArr.length()).map { i ->
+            val eo = exArr.getJSONObject(i)
+            val setArr = eo.getJSONArray("sets")
+            WorkoutExercise(
+                id = eo.optString("id"),
+                name = eo.getString("name"),
+                group = eo.getString("group"),
+                equip = "",
+                sets = (0 until setArr.length()).map { j ->
+                    val so = setArr.getJSONObject(j)
+                    SetData(prev = "—", weight = so.optString("weight", ""), reps = so.optString("reps", ""), done = true)
+                },
+            )
+        }
+        SavedWorkout(
+            id = o.getLong("id"),
+            title = o.getString("title"),
+            dateMillis = o.getLong("dateMillis"),
+            durationSec = o.getInt("durationSec"),
+            totalVolumeKg = o.getDouble("totalVolumeKg"),
+            totalSets = o.getInt("totalSets"),
+            exercises = exercises,
+            avgHeartRate = if (o.isNull("avgHeartRate")) null else o.getInt("avgHeartRate"),
+        )
+    }.getOrNull()
 
     fun encodeWorkoutSummary(s: WorkoutSummary): String =
         JSONObject()

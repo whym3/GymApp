@@ -360,6 +360,13 @@ fun GymApp() {
         if (finishRequested && timerState.active) finishWorkout()
     }
 
+    // Mirror the saved-workout list to the watch's history browser whenever it
+    // changes — added/deleted workouts, or a different account's data loaded.
+    val savedWorkouts = WorkoutRepository.workouts
+    LaunchedEffect(savedWorkouts.size, savedWorkouts.firstOrNull()?.id) {
+        PhoneWearSync.pushWorkoutHistory(context, savedWorkouts.toList())
+    }
+
     // "Start workout" requested from the watch companion
     val wearStartRequested by PhoneWearSync.startWorkoutRequested.collectAsState()
     LaunchedEffect(wearStartRequested) {

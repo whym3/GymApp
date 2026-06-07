@@ -64,6 +64,9 @@ object PhoneWearSync {
                 WearSync.PATH_ADJUST_WEIGHT -> WearSync.decodeWeightDelta(event.data)?.let { _weightAdjustments.tryEmit(it) }
                 WearSync.PATH_ADJUST_REPS -> WearSync.decodeRepsDelta(event.data)?.let { _repAdjustments.tryEmit(it) }
                 WearSync.PATH_HEART_RATE -> WearSync.decodeHeartRate(event.data)?.let { _watchHeartRate.value = it }
+                WearSync.PATH_REQUEST_WORKOUT_DETAIL -> WearSync.decodeId(event.data)?.let { id ->
+                    WorkoutRepository.workouts.find { it.id == id }?.let { pushWorkoutDetail(context.applicationContext, it) }
+                }
             }
         }
         listener = l
@@ -104,6 +107,35 @@ object PhoneWearSync {
             .setUrgent()
         Wearable.getDataClient(context.applicationContext).putDataItem(request)
             .addOnFailureListener { Log.e(TAG, "pushWorkoutSummary: failed to sync", it) }
+    }
+
+    /** Mirror the saved-workout list to the watch's history browser, lightweight (no per-set detail). */
+    fun pushWorkoutHistory(context: Context, workouts: List<SavedWorkout>) {
+        val entries = workouts.map {
+            WearSync.WorkoutHistoryEntry(
+                id = it.id,
+                title = it.title,
+                dateMillis = it.dateMillis,
+                durationSec = it.durationSec,
+                totalVolumeKg = it.totalVolumeKg,
+                totalSets = it.totalSets,
+                muscleGroups = it.muscleGroups,
+            )
+        }
+        val request = PutDataRequest.create(WearSync.PATH_WORKOUT_HISTORY)
+            .setData(WearSync.encodeWorkoutHistory(entries).toByteArray(Charsets.UTF_8))
+            .setUrgent()
+        Wearable.getDataClient(context.applicationContext).putDataItem(request)
+            .addOnFailureListener { Log.e(TAG, "pushWorkoutHistory: failed to sync", it) }
+    }
+
+    /** Reply to the watch's [WearSync.PATH_REQUEST_WORKOUT_DETAIL] with that workout's full exercise/set breakdown. */
+    private fun pushWorkoutDetail(context: Context, workout: SavedWorkout) {
+        val request = PutDataRequest.create(WearSync.PATH_WORKOUT_DETAIL)
+            .setData(WearSync.encodeSavedWorkout(workout).toByteArray(Charsets.UTF_8))
+            .setUrgent()
+        Wearable.getDataClient(context.applicationContext).putDataItem(request)
+            .addOnFailureListener { Log.e(TAG, "pushWorkoutDetail: failed to sync", it) }
     }
 
     /** Remove the active-workout snapshot once the session ends, so the watch goes back to idle. */

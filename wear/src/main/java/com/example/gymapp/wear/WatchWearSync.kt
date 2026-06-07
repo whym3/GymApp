@@ -2,6 +2,7 @@ package com.example.gymapp.wear
 
 import android.content.Context
 import android.util.Log
+import com.example.gymapp.SavedWorkout
 import com.example.gymapp.TodayStats
 import com.example.gymapp.WearSync
 import com.google.android.gms.tasks.Tasks
@@ -33,6 +34,14 @@ object WatchWearSync {
     private val _workoutSummary = MutableStateFlow<WearSync.WorkoutSummary?>(null)
     val workoutSummary: StateFlow<WearSync.WorkoutSummary?> = _workoutSummary.asStateFlow()
 
+    /** Lightweight saved-workout list for the watch's history browser, mirrored from the phone. */
+    private val _workoutHistory = MutableStateFlow<List<WearSync.WorkoutHistoryEntry>>(emptyList())
+    val workoutHistory: StateFlow<List<WearSync.WorkoutHistoryEntry>> = _workoutHistory.asStateFlow()
+
+    /** Full detail for whichever history entry was last tapped, fetched on demand via [sendRequestWorkoutDetail]. */
+    private val _workoutDetail = MutableStateFlow<SavedWorkout?>(null)
+    val workoutDetail: StateFlow<SavedWorkout?> = _workoutDetail.asStateFlow()
+
     private var listener: DataClient.OnDataChangedListener? = null
 
     fun init(context: Context) {
@@ -55,7 +64,9 @@ object WatchWearSync {
 
     private fun applyDataEvent(event: DataEvent) {
         when (event.dataItem.uri.path) {
-            WearSync.PATH_TODAY_STATS, WearSync.PATH_ACTIVE_WORKOUT, WearSync.PATH_WORKOUT_SUMMARY -> {
+            WearSync.PATH_TODAY_STATS, WearSync.PATH_ACTIVE_WORKOUT, WearSync.PATH_WORKOUT_SUMMARY,
+            WearSync.PATH_WORKOUT_HISTORY, WearSync.PATH_WORKOUT_DETAIL,
+            -> {
                 if (event.type == DataEvent.TYPE_DELETED) {
                     if (event.dataItem.uri.path == WearSync.PATH_ACTIVE_WORKOUT) _activeWorkout.value = null
                 } else {
@@ -72,12 +83,23 @@ object WatchWearSync {
             WearSync.PATH_TODAY_STATS -> WearSync.decodeTodayStats(json)?.let { _todayStats.value = it }
             WearSync.PATH_ACTIVE_WORKOUT -> WearSync.decodeActiveWorkout(json)?.let { _activeWorkout.value = it }
             WearSync.PATH_WORKOUT_SUMMARY -> WearSync.decodeWorkoutSummary(json)?.let { _workoutSummary.value = it }
+            WearSync.PATH_WORKOUT_HISTORY -> _workoutHistory.value = WearSync.decodeWorkoutHistory(json)
+            WearSync.PATH_WORKOUT_DETAIL -> WearSync.decodeSavedWorkout(json)?.let { _workoutDetail.value = it }
         }
     }
 
     /** Dismiss the recap once the wearer has glanced at it (or it's timed out). */
     fun consumeWorkoutSummary() {
         _workoutSummary.value = null
+    }
+
+    /** Ask the phone for one saved workout's full exercise/set breakdown, by id. */
+    suspend fun sendRequestWorkoutDetail(context: Context, id: Long) =
+        sendMessage(context, WearSync.PATH_REQUEST_WORKOUT_DETAIL, WearSync.encodeId(id))
+
+    /** Drop the last-fetched detail once the wearer navigates away, so a stale entry doesn't flash on the next open. */
+    fun consumeWorkoutDetail() {
+        _workoutDetail.value = null
     }
 
     /** Ask the phone to start an empty workout session. */
