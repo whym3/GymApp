@@ -221,7 +221,7 @@ private fun HeartRateChart(
         // Day-of-week labels under each point
         val style = TextStyle(fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold, color = MutedColor)
         daily.forEachIndexed { i, (date, _) ->
-            val lbl = date.dayOfWeek.getDisplayName(DayTextStyle.NARROW, Locale.getDefault())
+            val lbl = date.dayOfWeek.getDisplayName(DayTextStyle.SHORT, Locale.getDefault())
             val m = textMeasurer.measure(lbl, style)
             drawText(textMeasurer, lbl, topLeft = Offset(pts[i].x - m.size.width / 2f, h - padBot + 6f), style = style)
         }
