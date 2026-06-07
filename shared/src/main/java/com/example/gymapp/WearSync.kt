@@ -28,6 +28,9 @@ object WearSync {
     /** Watch → phone: end the session and jump to the summary screen. No payload. */
     const val PATH_FINISH_WORKOUT = "/gymapp/finish-workout"
 
+    /** Watch → phone: live on-wrist heart rate reading during a session, in BPM. */
+    const val PATH_HEART_RATE = "/gymapp/heart-rate"
+
     /** Bare-bones mirror of the active session, just enough for an at-a-glance watch screen. */
     data class ActiveWorkoutSnapshot(
         val running: Boolean,
@@ -52,6 +55,10 @@ object WearSync {
             heartRate = o.getString("heartRate"),
         )
     }.getOrNull()
+
+    fun encodeHeartRate(bpm: Int): ByteArray = bpm.toString().toByteArray(Charsets.UTF_8)
+
+    fun decodeHeartRate(bytes: ByteArray): Int? = String(bytes, Charsets.UTF_8).toIntOrNull()
 
     fun encodeActiveWorkout(s: ActiveWorkoutSnapshot): String =
         JSONObject()

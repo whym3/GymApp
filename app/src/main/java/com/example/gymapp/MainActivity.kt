@@ -156,13 +156,23 @@ fun GymApp() {
         }
     }
 
-    // Live heart rate during a session (polled from Health Connect)
+    // Live heart rate during a session — prefer the watch's on-wrist sensor,
+    // streamed live via PhoneWearSync (WatchHeartRateMonitor + Health Services),
+    // since polling Health Connect only sees whatever's already synced and can
+    // lag by minutes. Health Connect is the fallback when no watch is streaming.
     LaunchedEffect(inSession) {
         if (inSession) {
             while (true) {
-                liveHeartRate = manager.readLatestHeartRate()?.toInt()
+                if (PhoneWearSync.watchHeartRate.value == null) {
+                    liveHeartRate = manager.readLatestHeartRate()?.toInt()
+                }
                 delay(15_000L)
             }
+        }
+    }
+    LaunchedEffect(inSession) {
+        if (inSession) {
+            PhoneWearSync.watchHeartRate.collect { bpm -> if (bpm != null) liveHeartRate = bpm }
         }
     }
 
@@ -191,6 +201,7 @@ fun GymApp() {
         sessionStartMillis = System.currentTimeMillis()
         liveHeartRate = null
         finishedAvgHr = null
+        PhoneWearSync.clearWatchHeartRate()
         Haptics.workoutStart(context)     // firm buzz on start
         WorkoutTimer.start()
         WorkoutService.start(context)
@@ -240,6 +251,7 @@ fun GymApp() {
         WorkoutTimer.stop()               // service observes this and removes the notification
         exercises.clear(); rest = null; summaryData = null; finishedElapsed = 0
         liveHeartRate = null; finishedAvgHr = null
+        PhoneWearSync.clearWatchHeartRate()
         PhoneWearSync.clearActiveWorkout(context)
     }
     fun saveWorkout() {

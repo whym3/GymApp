@@ -32,6 +32,10 @@ object PhoneWearSync {
     private val _activeWorkoutCommands = MutableSharedFlow<ActiveWorkoutCommand>(extraBufferCapacity = 4)
     val activeWorkoutCommands: SharedFlow<ActiveWorkoutCommand> = _activeWorkoutCommands.asSharedFlow()
 
+    /** Latest on-wrist heart rate streamed live from the watch's sensor during a session, in BPM. */
+    private val _watchHeartRate = MutableStateFlow<Int?>(null)
+    val watchHeartRate: StateFlow<Int?> = _watchHeartRate.asStateFlow()
+
     private var listener: MessageClient.OnMessageReceivedListener? = null
 
     fun init(context: Context) {
@@ -42,6 +46,7 @@ object PhoneWearSync {
                 WearSync.PATH_TOGGLE_PAUSE -> _activeWorkoutCommands.tryEmit(ActiveWorkoutCommand.TOGGLE_PAUSE)
                 WearSync.PATH_MARK_SET_DONE -> _activeWorkoutCommands.tryEmit(ActiveWorkoutCommand.MARK_SET_DONE)
                 WearSync.PATH_FINISH_WORKOUT -> _activeWorkoutCommands.tryEmit(ActiveWorkoutCommand.FINISH_WORKOUT)
+                WearSync.PATH_HEART_RATE -> WearSync.decodeHeartRate(event.data)?.let { _watchHeartRate.value = it }
             }
         }
         listener = l
@@ -50,6 +55,11 @@ object PhoneWearSync {
 
     fun consumeStartWorkoutRequest() {
         _startWorkoutRequested.value = false
+    }
+
+    /** Reset between sessions so a stale on-wrist reading doesn't linger into the next one. */
+    fun clearWatchHeartRate() {
+        _watchHeartRate.value = null
     }
 
     /** Push the latest dashboard snapshot to any listening watch. */

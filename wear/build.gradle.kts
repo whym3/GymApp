@@ -39,6 +39,9 @@ dependencies {
     implementation(libs.androidx.wear.compose.foundation)
     implementation(libs.androidx.wear.tooling.preview)
     implementation(libs.play.services.wearable)
+    implementation(libs.horologist.compose.layout)
+    implementation(libs.androidx.health.services.client)
+    implementation(libs.guava)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -82,13 +82,19 @@ object WatchWearSync {
     /** End the session and jump to the summary screen. */
     suspend fun sendFinishWorkout(context: Context) = sendCommand(context, WearSync.PATH_FINISH_WORKOUT)
 
-    private suspend fun sendCommand(context: Context, path: String) = withContext(Dispatchers.IO) {
+    /** Relay a live on-wrist heart rate reading (from [WatchHeartRateMonitor]) to the phone. */
+    suspend fun sendHeartRate(context: Context, bpm: Int) =
+        sendMessage(context, WearSync.PATH_HEART_RATE, WearSync.encodeHeartRate(bpm))
+
+    private suspend fun sendCommand(context: Context, path: String) = sendMessage(context, path, ByteArray(0))
+
+    private suspend fun sendMessage(context: Context, path: String, payload: ByteArray) = withContext(Dispatchers.IO) {
         val ctx = context.applicationContext
         val nodes = runCatching { Tasks.await(Wearable.getNodeClient(ctx).connectedNodes) }.getOrDefault(emptyList())
         nodes.forEach { node ->
             runCatching {
-                Tasks.await(Wearable.getMessageClient(ctx).sendMessage(node.id, path, ByteArray(0)))
-            }.onFailure { Log.e(TAG, "sendCommand($path): failed to send to ${node.displayName}", it) }
+                Tasks.await(Wearable.getMessageClient(ctx).sendMessage(node.id, path, payload))
+            }.onFailure { Log.e(TAG, "sendMessage($path): failed to send to ${node.displayName}", it) }
         }
     }
 }
