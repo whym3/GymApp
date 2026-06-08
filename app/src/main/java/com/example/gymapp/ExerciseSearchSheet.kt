@@ -31,11 +31,14 @@ import com.example.gymapp.ui.theme.*
 fun ExerciseSearchSheet(
     onClose: () -> Unit,
     onAdd: (ExerciseLibraryItem) -> Unit,
+    onRemove: (ExerciseLibraryItem) -> Unit = {},
+    currentExerciseNames: Set<String> = emptySet(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query  by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf<String?>(null) }
-    val added  = remember { mutableStateMapOf<String, Boolean>() }
+    // Pre-populate with exercises already in the session
+    val added  = remember { mutableStateMapOf<String, Boolean>().also { map -> currentExerciseNames.forEach { map[it] = true } } }
 
     val filtered = exerciseLibrary.filter { ex ->
         (filter == null || ex.group == filter) &&
@@ -184,8 +187,13 @@ fun ExerciseSearchSheet(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .clickable {
-                                    onAdd(ex)
-                                    added[ex.name] = true
+                                    if (isAdded) {
+                                        onRemove(ex)
+                                        added[ex.name] = false
+                                    } else {
+                                        onAdd(ex)
+                                        added[ex.name] = true
+                                    }
                                 }
                                 .padding(horizontal = 10.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,

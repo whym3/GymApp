@@ -42,6 +42,7 @@ fun ActiveWorkoutScreen(
     onField: (exerciseIdx: Int, setIdx: Int, key: String, value: String) -> Unit,
     onToggleSet: (exerciseIdx: Int, setIdx: Int) -> Unit,
     onAddSet: (Int) -> Unit,
+    onRemoveSet: (exerciseIdx: Int, setIdx: Int) -> Unit,
     onAddRest: () -> Unit,
     onSkipRest: () -> Unit,
 ) {
@@ -186,6 +187,7 @@ fun ActiveWorkoutScreen(
                         onField = { si, key, value -> onField(ei, si, key, value) },
                         onToggleSet = { si -> onToggleSet(ei, si) },
                         onAddSet = { onAddSet(ei) },
+                        onRemoveSet = { si -> onRemoveSet(ei, si) },
                     )
                 }
 
@@ -265,6 +267,7 @@ private fun ExerciseCard(
     onField: (setIdx: Int, key: String, value: String) -> Unit,
     onToggleSet: (Int) -> Unit,
     onAddSet: () -> Unit,
+    onRemoveSet: (Int) -> Unit,
 ) {
     val muscleCol = muscleColor(exercise.group)
     val doneCount = exercise.sets.count { it.done }
@@ -325,15 +328,17 @@ private fun ExerciseCard(
                     Text("Previous",textAlign = TextAlign.Center, modifier = Modifier.weight(1f),   fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MutedColor, letterSpacing = 0.6.sp)
                     Text("Kg",       textAlign = TextAlign.Center, modifier = Modifier.weight(1f),   fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MutedColor, letterSpacing = 0.6.sp)
                     Text("Reps",     textAlign = TextAlign.Center, modifier = Modifier.weight(1f),   fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = MutedColor, letterSpacing = 0.6.sp)
-                    Spacer(Modifier.width(40.dp))
+                    Spacer(Modifier.width(66.dp)) // checkmark(30) + gap(8) + remove(28)
                 }
 
                 exercise.sets.forEachIndexed { si, set ->
                     SetRow(
                         index = si,
                         set = set,
+                        canRemove = exercise.sets.size > 1,
                         onField = { key, value -> onField(si, key, value) },
                         onToggle = { onToggleSet(si) },
+                        onRemove = { onRemoveSet(si) },
                     )
                 }
 
@@ -362,8 +367,10 @@ private fun ExerciseCard(
 private fun SetRow(
     index: Int,
     set: SetData,
+    canRemove: Boolean,
     onField: (key: String, value: String) -> Unit,
     onToggle: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -437,6 +444,22 @@ private fun SetRow(
                 null,
                 tint = if (set.done) BgColor else MutedColor,
                 modifier = Modifier.size(16.dp),
+            )
+        }
+
+        // Remove set button — hidden when only one set remains
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .then(if (canRemove) Modifier.clickable { onRemove() } else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.Close,
+                contentDescription = "Remove set",
+                tint = if (canRemove) MutedColor else Color.Transparent,
+                modifier = Modifier.size(15.dp),
             )
         }
     }

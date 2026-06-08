@@ -12,6 +12,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +32,8 @@ fun WorkoutDetailScreen(
     onBack: () -> Unit,
     onDelete: (SavedWorkout) -> Unit,
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize().background(BgColor)) {
         DetailTopBar(
             title = workout.title,
@@ -39,7 +45,7 @@ fun WorkoutDetailScreen(
                         .size(38.dp)
                         .clip(CircleShape)
                         .background(CardColor)
-                        .clickable { onDelete(workout) },
+                        .clickable { showDeleteConfirm = true },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Rounded.DeleteOutline, "Delete", tint = MuscleChest, modifier = Modifier.size(19.dp))
@@ -146,6 +152,27 @@ fun WorkoutDetailScreen(
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = CardElevColor,
+            titleContentColor = TextColor,
+            textContentColor = SubTextColor,
+            title = { Text("Delete workout?", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete this workout? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onDelete(workout) }) {
+                    Text("Delete", color = MuscleChest, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", color = SubTextColor, fontWeight = FontWeight.SemiBold)
+                }
+            },
+        )
     }
 }
 

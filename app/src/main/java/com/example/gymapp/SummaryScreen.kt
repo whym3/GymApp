@@ -32,6 +32,7 @@ fun SummaryScreen(
     onDiscard: () -> Unit,
 ) {
     val expandedLog = remember { mutableStateMapOf<Int, Boolean>() }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -247,7 +248,7 @@ fun SummaryScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedButton(
-                onClick = onDiscard,
+                onClick = { showDiscardConfirm = true },
                 shape = RoundedCornerShape(13.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = SubTextColor),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
@@ -266,6 +267,27 @@ fun SummaryScreen(
                 Text("Save Workout", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
+    }
+
+    if (showDiscardConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirm = false },
+            containerColor = CardElevColor,
+            titleContentColor = TextColor,
+            textContentColor = SubTextColor,
+            title = { Text("Discard workout?", fontWeight = FontWeight.Bold) },
+            text = { Text("This workout will not be saved. Are you sure you want to discard it?") },
+            confirmButton = {
+                TextButton(onClick = { showDiscardConfirm = false; onDiscard() }) {
+                    Text("Discard", color = MuscleChest, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardConfirm = false }) {
+                    Text("Cancel", color = SubTextColor, fontWeight = FontWeight.SemiBold)
+                }
+            },
+        )
     }
 }
 

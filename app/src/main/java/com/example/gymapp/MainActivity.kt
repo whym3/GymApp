@@ -560,6 +560,10 @@ fun GymApp() {
                         },
                         onToggleSet = { ei, si -> markSetDone(ei, si) },
                         onAddSet = { ei -> addSet(ei) },
+                        onRemoveSet = { ei, si ->
+                            val ex = exercises[ei]
+                            if (ex.sets.size > 1) exercises[ei] = ex.copy(sets = ex.sets.toMutableList().also { it.removeAt(si) })
+                        },
                         onAddRest = { rest = (rest ?: 0) + 15 },
                         onSkipRest = { rest = null },
                     )
@@ -636,6 +640,8 @@ fun GymApp() {
             ExerciseSearchSheet(
                 onClose = { showSearch = false },
                 onAdd = { lib -> exercises.add(newSessionExercise(lib)) },
+                onRemove = { lib -> exercises.removeAll { it.name == lib.name } },
+                currentExerciseNames = exercises.map { it.name }.toSet(),
             )
         }
     }
