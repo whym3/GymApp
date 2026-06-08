@@ -464,16 +464,17 @@ private fun SetRow(
             value = set.weight,
             placeholder = "0",
             done = set.done,
-            onValueChange = { onField("weight", it) },
+            onValueChange = { onField("weight", it.filter { c -> c.isDigit() || c == '.' }) },
             modifier = Modifier.weight(1f),
         )
 
-        // Reps dropdown (5–20)
-        RepsDropdown(
+        SetInput(
             value = set.reps,
+            placeholder = "0",
             done = set.done,
-            onSelect = { onField("reps", it) },
+            onValueChange = { onField("reps", it.filter { c -> c.isDigit() }) },
             modifier = Modifier.weight(1f),
+            keyboardType = KeyboardType.Number,
         )
 
         // Done checkmark
@@ -610,50 +611,6 @@ private fun SetTypeOption(
     }
 }
 
-@Composable
-private fun RepsDropdown(
-    value: String,
-    done: Boolean,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Box(modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(36.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(if (done) Color.Transparent else SubtleFillColor)
-                .clickable { expanded = true },
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                value.ifEmpty { "0" },
-                fontSize = 14.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = when {
-                    value.isEmpty() -> MutedColor
-                    done -> SubTextColor
-                    else -> TextColor
-                },
-            )
-            Icon(Icons.Rounded.ArrowDropDown, null, tint = MutedColor, modifier = Modifier.size(16.dp))
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            (5..20).forEach { n ->
-                DropdownMenuItem(
-                    text = { Text("$n reps", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextColor) },
-                    onClick = { onSelect(n.toString()); expanded = false },
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun SetInput(
@@ -662,16 +619,17 @@ private fun SetInput(
     done: Boolean,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    keyboardType: KeyboardType = KeyboardType.Decimal,
 ) {
     BasicTextField(
         value = value,
-        onValueChange = { onValueChange(it.filter { c -> c.isDigit() || c == '.' }) },
+        onValueChange = onValueChange,
         modifier = modifier
             .height(36.dp)
             .clip(RoundedCornerShape(9.dp))
             .background(if (done) Color.Transparent else SubtleFillColor),
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         cursorBrush = SolidColor(AccentColor),
         textStyle = TextStyle(
             fontSize = 14.5.sp,
