@@ -29,19 +29,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.PermissionController
 import com.example.gymapp.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun OnboardingScreen(
     manager: HealthConnectManager,
-    onComplete: (name: String, email: String, gender: String?) -> Unit,
+    onComplete: (name: String, email: String, gender: String?, heightCm: Int?, weightKg: Double?, birthdayMillis: Long?) -> Unit,
     onLogin: () -> Unit,
 ) {
-    // Returning user who logged out: offer to sign back into the saved account.
     if (UserStore.hasAccount) {
-        WelcomeBackScreen(
-            onLogin = onLogin,
-            onUseDifferent = { UserStore.deleteAccount() },
-        )
+        WelcomeBackScreen(onLogin = onLogin, onUseDifferent = { UserStore.deleteAccount() })
         return
     }
 
@@ -49,10 +48,16 @@ fun OnboardingScreen(
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var gender by remember { mutableStateOf<String?>(null) }
+    var weight by remember { mutableStateOf("") }
+    var height by remember { mutableStateOf("") }
+    var birthday by remember { mutableStateOf<Long?>(null) }
 
     val hcAvailable = manager.isAvailable
 
-    fun finish() = onComplete(name, email, gender)
+    fun finish() = onComplete(
+        name, email, gender,
+        height.toIntOrNull(), weight.toDoubleOrNull(), birthday,
+    )
 
     val hcLauncher = rememberLauncherForActivityResult(
         contract = PermissionController.createRequestPermissionResultContract(),
@@ -83,9 +88,9 @@ fun OnboardingScreen(
             .padding(horizontal = 28.dp)
             .padding(top = 36.dp, bottom = 28.dp),
     ) {
-        // Step indicator
+        // Step indicator (3 steps)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            repeat(2) { i ->
+            repeat(3) { i ->
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -98,17 +103,23 @@ fun OnboardingScreen(
 
         Spacer(Modifier.height(28.dp))
 
-        if (step == 0) {
-            DetailsStep(
+        when (step) {
+            0 -> DetailsStep(
                 name = name, onName = { name = it },
                 email = email, onEmail = { email = it },
                 gender = gender, onGender = { gender = it },
                 onNext = { step = 1 },
             )
-        } else {
-            PermissionsStep(
-                hcAvailable = hcAvailable,
+            1 -> BodyMetricsStep(
+                weight = weight, onWeight = { weight = it },
+                height = height, onHeight = { height = it },
+                birthday = birthday, onBirthday = { birthday = it },
                 onBack = { step = 0 },
+                onNext = { step = 2 },
+            )
+            else -> PermissionsStep(
+                hcAvailable = hcAvailable,
+                onBack = { step = 1 },
                 onAllow = { requestAll() },
                 onSkip = { finish() },
             )
@@ -117,10 +128,7 @@ fun OnboardingScreen(
 }
 
 @Composable
-private fun WelcomeBackScreen(
-    onLogin: () -> Unit,
-    onUseDifferent: () -> Unit,
-) {
+private fun WelcomeBackScreen(onLogin: () -> Unit, onUseDifferent: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -138,9 +146,7 @@ private fun WelcomeBackScreen(
         if (UserStore.email.isNotBlank()) {
             Text(UserStore.email, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MutedColor)
         }
-
         Spacer(Modifier.height(40.dp))
-
         Button(
             onClick = onLogin,
             modifier = Modifier.fillMaxWidth(),
@@ -189,19 +195,19 @@ private fun ColumnScope.DetailsStep(
 
     Spacer(Modifier.height(18.dp))
 
-    Text("Email (optional)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SubTextColor)
+    Text("Email", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SubTextColor)
     Spacer(Modifier.height(8.dp))
     AppTextField(value = email, onValueChange = onEmail, placeholder = "you@email.com", keyboardType = KeyboardType.Email, modifier = Modifier.fillMaxWidth())
 
     Spacer(Modifier.height(18.dp))
 
-    Text("Gender (optional)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SubTextColor)
+    Text("Gender", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SubTextColor)
     Spacer(Modifier.height(8.dp))
     GenderSelector(selected = gender, onSelect = onGender)
 
     Spacer(Modifier.height(32.dp))
 
-    val canContinue = name.isNotBlank()
+    val canContinue = name.isNotBlank() && email.isNotBlank() && gender != null
     Button(
         onClick = onNext,
         enabled = canContinue,
@@ -218,6 +224,150 @@ private fun ColumnScope.DetailsStep(
             fontSize = 16.sp, fontWeight = FontWeight.Bold,
             color = if (canContinue) Color.White else MutedColor,
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ColumnScope.BodyMetricsStep(
+    weight: String, onWeight: (String) -> Unit,
+    height: String, onHeight: (String) -> Unit,
+    birthday: Long?, onBirthday: (Long?) -> Unit,
+    onBack: () -> Unit,
+    onNext: () -> Unit,
+) {
+    var showDatePicker by remember { mutableStateOf(false) }
+    val dateFmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
+
+    val weightD = weight.toDoubleOrNull()
+    val heightI = height.toIntOrNull()
+    val bmi = if (weightD != null && heightI != null && heightI > 0) {
+        val m = heightI / 100.0
+        weightD / (m * m)
+    } else null
+
+    Text("Body metrics", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = TextColor)
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Help us personalise your experience. You can always update these later in your profile.",
+        fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = SubTextColor, lineHeight = 21.sp,
+    )
+
+    Spacer(Modifier.height(28.dp))
+
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Weight (kg)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SubTextColor)
+            Spacer(Modifier.height(8.dp))
+            AppTextField(
+                value = weight,
+                onValueChange = { onWeight(it.filter { c -> c.isDigit() || c == '.' }) },
+                placeholder = "e.g. 75",
+                keyboardType = KeyboardType.Decimal,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Height (cm)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SubTextColor)
+            Spacer(Modifier.height(8.dp))
+            AppTextField(
+                value = height,
+                onValueChange = { onHeight(it.filter { c -> c.isDigit() }) },
+                placeholder = "e.g. 175",
+                keyboardType = KeyboardType.Number,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    // Live BMI card
+    if (bmi != null) {
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(13.dp))
+                .background(AccentColor.copy(alpha = 0.08f))
+                .border(1.dp, AccentColor.copy(alpha = 0.22f), RoundedCornerShape(13.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Rounded.Speed, null, tint = AccentColor, modifier = Modifier.size(18.dp))
+            Text(
+                "BMI  ${String.format(Locale.US, "%.1f", bmi)}",
+                fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AccentColor,
+            )
+            Text(
+                "· ${bmiCategory(bmi)}",
+                fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = SubTextColor,
+            )
+        }
+    }
+
+    Spacer(Modifier.height(18.dp))
+
+    Text("Birthday", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SubTextColor)
+    Spacer(Modifier.height(8.dp))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(13.dp))
+            .background(CardColor)
+            .border(1.dp, LineColor, RoundedCornerShape(13.dp))
+            .clickable { showDatePicker = true }
+            .padding(horizontal = 14.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Cake, null, tint = SubTextColor, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            birthday?.let { dateFmt.format(Date(it)) } ?: "Select your birthday",
+            fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            color = if (birthday != null) TextColor else MutedColor,
+            modifier = Modifier.weight(1f),
+        )
+        if (birthday != null) {
+            Icon(
+                Icons.Rounded.Close, null, tint = MutedColor,
+                modifier = Modifier.size(16.dp).clickable { onBirthday(null) },
+            )
+        }
+    }
+
+    Spacer(Modifier.height(32.dp))
+
+    Button(
+        onClick = onNext,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+        contentPadding = PaddingValues(vertical = 16.dp),
+    ) {
+        Text("Continue", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+    }
+    Spacer(Modifier.height(4.dp))
+    TextButton(onClick = onBack) {
+        Text("Back", fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = SubTextColor)
+    }
+
+    if (showDatePicker) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = birthday)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = { onBirthday(state.selectedDateMillis); showDatePicker = false }) {
+                    Text("OK", color = AccentColor, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel", color = SubTextColor, fontWeight = FontWeight.SemiBold)
+                }
+            },
+        ) {
+            DatePicker(state = state, title = null)
+        }
     }
 }
 
