@@ -42,9 +42,26 @@ val exerciseLibrary = listOf(
     ExerciseLibraryItem("JM Press",                    "Arms",      "Barbell"),
     ExerciseLibraryItem("Tricep Pushdown",             "Arms",      "Machine"),
     // Core
+    ExerciseLibraryItem("Crunch",                      "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Sit-up",                      "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Decline Sit-up",              "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Leg Raise",                   "Core",      "Bodyweight"),
     ExerciseLibraryItem("Hanging Leg Raise",           "Core",      "Bodyweight"),
-    ExerciseLibraryItem("Cable Crunch",                "Core",      "Machine"),
+    ExerciseLibraryItem("Hanging Knee Raise",          "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Bicycle Crunch",              "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Russian Twist",               "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Weighted Russian Twist",      "Core",      "Dumbbell"),
+    ExerciseLibraryItem("V-up",                        "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Toe Touch",                   "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Flutter Kicks",               "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Mountain Climbers",           "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Ab Wheel Rollout",            "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Dead Bug",                    "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Dragon Flag",                 "Core",      "Bodyweight"),
     ExerciseLibraryItem("Plank",                       "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Side Plank",                  "Core",      "Bodyweight"),
+    ExerciseLibraryItem("Cable Crunch",                "Core",      "Machine"),
+    ExerciseLibraryItem("Pallof Press",                "Core",      "Machine"),
 )
 
 private fun lib(name: String) = exerciseLibrary.first { it.name == name }
