@@ -5,6 +5,9 @@
     <!-- Notifications (workout timer + rest timer) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Live Updates: promote the active-workout notification to a status-bar chip (Android 16+) -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+
     <!-- Haptics -->
     <uses-permission android:name="android.permission.VIBRATE" />
 

@@ -24,3 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Gym App"
 include(":app")
+include(":shared")
+include(":wear")

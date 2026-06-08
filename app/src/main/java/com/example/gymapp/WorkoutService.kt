@@ -17,13 +17,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
  * Foreground service that keeps the workout alive in the background and shows an
- * ongoing notification with the live elapsed time plus Pause/Resume and Finish
- * controls. State lives in [WorkoutTimer]; this service mirrors it to the
- * notification and forwards the notification actions back to it.
+ * ongoing notification with the live elapsed time, exercise/set progress, and
+ * Pause/Resume + Finish controls. State lives in [WorkoutTimer] (timing) and
+ * [WorkoutProgress] (exercise/set breakdown); this service mirrors both to the
+ * notification and forwards notification actions back to [WorkoutTimer].
+ *
+ * On Android 16+ the notification is built as a Live Update — a [NotificationCompat.ProgressStyle]
+ * with one segment per exercise, promoted to a status-bar chip — falling back to a
+ * plain ongoing notification on older OS versions.
  */
 class WorkoutService : Service() {
 
@@ -40,26 +46,27 @@ class WorkoutService : Service() {
         }
 
         ensureChannel()
-        startInForeground(buildNotification(WorkoutTimer.state.value))
+        startInForeground(buildNotification(WorkoutTimer.state.value, WorkoutProgress.state.value))
 
         if (!observing) {
             observing = true
             scope.launch {
-                WorkoutTimer.state.collect { s ->
-                    if (!s.active) {
-                        // Workout ended — tear the ongoing notification down for good.
-                        stopForegroundCompat()
-                        runCatching {
-                            NotificationManagerCompat.from(this@WorkoutService).cancel(NOTIF_ID)
-                        }
-                        stopSelf()
-                    } else {
-                        runCatching {
-                            NotificationManagerCompat.from(this@WorkoutService)
-                                .notify(NOTIF_ID, buildNotification(s))
+                combine(WorkoutTimer.state, WorkoutProgress.state) { timer, progress -> timer to progress }
+                    .collect { (s, progress) ->
+                        if (!s.active) {
+                            // Workout ended — tear the ongoing notification down for good.
+                            stopForegroundCompat()
+                            runCatching {
+                                NotificationManagerCompat.from(this@WorkoutService).cancel(NOTIF_ID)
+                            }
+                            stopSelf()
+                        } else {
+                            runCatching {
+                                NotificationManagerCompat.from(this@WorkoutService)
+                                    .notify(NOTIF_ID, buildNotification(s, progress))
+                            }
                         }
                     }
-                }
             }
         }
         return START_STICKY
@@ -98,7 +105,7 @@ class WorkoutService : Service() {
         }
     }
 
-    private fun buildNotification(s: WorkoutTimer.State): Notification {
+    private fun buildNotification(s: WorkoutTimer.State, progress: WorkoutProgress.State): Notification {
         val openIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -107,17 +114,63 @@ class WorkoutService : Service() {
         val toggle = if (s.running) action("Pause", ACTION_PAUSE) else action("Resume", ACTION_RESUME)
         val finish = action("Finish", ACTION_FINISH)
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val totalSets = progress.totalSets
+        val setLabel = when {
+            totalSets == 0 -> null
+            progress.doneSets >= totalSets -> "All sets complete"
+            else -> "Set ${progress.doneSets + 1} of $totalSets"
+        }
+        val title = progress.currentExerciseName
+            ?: if (s.running) "Workout in progress" else "Workout paused"
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_workout)
-            .setContentTitle(if (s.running) "Workout in progress" else "Workout paused")
-            .setContentText(formatClock(s.elapsedSec))
+            .setContentTitle(title)
             .setOngoing(true)
             .setOnlyAlertOnce(true)   // alert on start, but don't buzz on every tick
             .setContentIntent(openIntent)
             .addAction(toggle)
             .addAction(finish)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            // Live Update: progress bar segmented per exercise, status-bar chip,
+            // and a chronometer so the elapsed time ticks without per-second notify().
+            if (totalSets > 0) {
+                builder.setStyle(progressStyle(progress, totalSets))
+                builder.setShortCriticalText("${progress.doneSets}/$totalSets")
+            }
+            builder.setContentText(
+                if (s.running) (setLabel ?: formatClock(s.elapsedSec))
+                else listOfNotNull(setLabel, formatClock(s.elapsedSec)).joinToString(" · ")
+            )
+            builder.setRequestPromotedOngoing(true)
+            builder.setShowWhen(s.running)
+            builder.setUsesChronometer(s.running)
+            if (s.running) builder.setWhen(System.currentTimeMillis() - s.elapsedSec * 1000L)
+        } else {
+            builder.setContentText(listOfNotNull(setLabel, formatClock(s.elapsedSec)).joinToString(" · "))
+        }
+
+        return builder.build()
+    }
+
+    /** One [NotificationCompat.ProgressStyle.Segment] per exercise (sized by its set count), with
+     *  boundary [NotificationCompat.ProgressStyle.Point]s marking where each exercise starts. */
+    private fun progressStyle(progress: WorkoutProgress.State, totalSets: Int): NotificationCompat.ProgressStyle {
+        val style = NotificationCompat.ProgressStyle()
+            .setProgress(progress.doneSets.coerceAtMost(totalSets))
+        progress.exercises.forEachIndexed { i, ex ->
+            style.addProgressSegment(
+                NotificationCompat.ProgressStyle.Segment(ex.totalSets.coerceAtLeast(1)).setId(i)
+            )
+        }
+        var cumulative = 0
+        progress.exercises.dropLast(1).forEach { ex ->
+            cumulative += ex.totalSets
+            style.addProgressPoint(NotificationCompat.ProgressStyle.Point(cumulative))
+        }
+        return style
     }
 
     private fun action(title: String, act: String): NotificationCompat.Action {
