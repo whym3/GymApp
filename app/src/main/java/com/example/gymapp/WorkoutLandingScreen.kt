@@ -29,6 +29,7 @@ fun WorkoutLandingScreen(
     onTemplate: (WorkoutTemplate) -> Unit,
     onRepeat: (SavedWorkout) -> Unit,
     onCreateRoutine: () -> Unit,
+    onEditRoutine: (Routine) -> Unit,
 ) {
     val last = WorkoutRepository.workouts.firstOrNull()
     val routines = RoutineRepository.routines
@@ -149,6 +150,7 @@ fun WorkoutLandingScreen(
                     meta = "${routine.exercises.size} exercises · ${routine.groups.size} group${if (routine.groups.size == 1) "" else "s"}",
                     groups = routine.groups,
                     onClick = { onTemplate(routine.toTemplate()) },
+                    onEdit = { onEditRoutine(routine) },
                 )
             }
         }
@@ -176,6 +178,7 @@ private fun PlanCard(
     meta: String,
     groups: List<String>,
     onClick: () -> Unit,
+    onEdit: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -201,6 +204,19 @@ private fun PlanCard(
                 groups.forEach { MuscleTag(it) }
             }
         }
-        Icon(Icons.Rounded.ChevronRight, null, tint = MutedColor, modifier = Modifier.size(20.dp))
+        if (onEdit != null) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SubtleFillColor)
+                    .clickable { onEdit() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Edit, "Edit routine", tint = SubTextColor, modifier = Modifier.size(16.dp))
+            }
+        } else {
+            Icon(Icons.Rounded.ChevronRight, null, tint = MutedColor, modifier = Modifier.size(20.dp))
+        }
     }
 }

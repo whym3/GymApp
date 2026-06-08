@@ -26,7 +26,7 @@ import java.time.Instant
 import java.util.Locale
 
 enum class Screen {
-    ONBOARDING, HOME, WORKOUT_LANDING, CREATE_ROUTINE, TEMPLATE_DETAIL,
+    ONBOARDING, HOME, WORKOUT_LANDING, CREATE_ROUTINE, EDIT_ROUTINE, TEMPLATE_DETAIL,
     ACTIVE_WORKOUT, SUMMARY, HISTORY, WORKOUT_DETAIL, PROGRESS, PROFILE, HEART_RATE, STEPS
 }
 
@@ -125,6 +125,7 @@ fun GymApp() {
     // Selections for detail screens
     var selectedTemplate by remember { mutableStateOf<WorkoutTemplate?>(null) }
     var selectedWorkout by remember { mutableStateOf<SavedWorkout?>(null) }
+    var selectedRoutine by remember { mutableStateOf<Routine?>(null) }
     var summaryData by remember { mutableStateOf<WorkoutSummaryData?>(null) }
 
     // Health Connect / dashboard
@@ -343,7 +344,7 @@ fun GymApp() {
             // Bottom-nav tabs → back to Home
             Screen.WORKOUT_LANDING, Screen.HISTORY, Screen.PROGRESS -> screen = Screen.HOME
             // Secondary screens → return to their origin
-            Screen.CREATE_ROUTINE  -> screen = Screen.WORKOUT_LANDING
+            Screen.CREATE_ROUTINE, Screen.EDIT_ROUTINE -> screen = Screen.WORKOUT_LANDING
             Screen.TEMPLATE_DETAIL -> screen = backStackScreen
             Screen.ACTIVE_WORKOUT  -> screen = Screen.WORKOUT_LANDING
             Screen.SUMMARY         -> { endSession(); screen = Screen.HOME }
@@ -499,6 +500,7 @@ fun GymApp() {
                         onTemplate = { t -> selectedTemplate = t; backStackScreen = Screen.WORKOUT_LANDING; screen = Screen.TEMPLATE_DETAIL },
                         onRepeat = { w -> repeatWorkout(w) },
                         onCreateRoutine = { screen = Screen.CREATE_ROUTINE },
+                        onEditRoutine = { r -> selectedRoutine = r; screen = Screen.EDIT_ROUTINE },
                     )
 
                     Screen.CREATE_ROUTINE -> CreateRoutineScreen(
@@ -508,6 +510,17 @@ fun GymApp() {
                             screen = Screen.WORKOUT_LANDING
                         },
                     )
+
+                    Screen.EDIT_ROUTINE -> selectedRoutine?.let { r ->
+                        CreateRoutineScreen(
+                            existing = r,
+                            onBack = { screen = Screen.WORKOUT_LANDING },
+                            onSave = { updated ->
+                                RoutineRepository.update(context, updated)
+                                screen = Screen.WORKOUT_LANDING
+                            },
+                        )
+                    }
 
                     Screen.TEMPLATE_DETAIL -> selectedTemplate?.let { t ->
                         val routineId = t.id.removePrefix("routine-").toLongOrNull()

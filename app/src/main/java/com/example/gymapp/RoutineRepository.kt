@@ -52,6 +52,11 @@ object RoutineRepository {
         writeToDisk(context)
     }
 
+    fun update(context: Context, routine: Routine) {
+        val i = _routines.indexOfFirst { it.id == routine.id }
+        if (i >= 0) { _routines[i] = routine; writeToDisk(context) }
+    }
+
     fun deleteAll(context: Context) {
         _routines.clear()
         runCatching { file(context).delete() }

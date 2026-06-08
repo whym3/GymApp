@@ -26,16 +26,18 @@ import com.example.gymapp.ui.theme.*
 fun CreateRoutineScreen(
     onBack: () -> Unit,
     onSave: (Routine) -> Unit,
+    existing: Routine? = null,
 ) {
-    var name by remember { mutableStateOf("") }
-    val exercises = remember { mutableStateListOf<ExerciseLibraryItem>() }
+    var name by remember { mutableStateOf(existing?.name ?: "") }
+    val exercises = remember { mutableStateListOf<ExerciseLibraryItem>().also { it.addAll(existing?.exercises ?: emptyList()) } }
     var showSearch by remember { mutableStateOf(false) }
 
+    val isEditing = existing != null
     val canSave = name.isNotBlank() && exercises.isNotEmpty()
 
     Box(modifier = Modifier.fillMaxSize().background(BgColor)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            DetailTopBar(title = "New Routine", onBack = onBack)
+            DetailTopBar(title = if (isEditing) "Edit Routine" else "New Routine", onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -151,7 +153,7 @@ fun CreateRoutineScreen(
                     onClick = {
                         onSave(
                             Routine(
-                                id = System.currentTimeMillis(),
+                                id = existing?.id ?: System.currentTimeMillis(),
                                 name = name.trim(),
                                 exercises = exercises.toList(),
                             )
@@ -167,7 +169,7 @@ fun CreateRoutineScreen(
                     contentPadding = PaddingValues(vertical = 15.dp),
                 ) {
                     Text(
-                        "Save Routine",
+                        if (isEditing) "Save Changes" else "Save Routine",
                         fontSize = 15.sp, fontWeight = FontWeight.Bold,
                         color = if (canSave) Color.White else MutedColor,
                     )
