@@ -11,6 +11,17 @@
     <!-- Haptics -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Bluetooth LE — connect to a broadcasting heart-rate monitor (e.g. a Mi
+         Band with "Broadcast Heart Rate" on). neverForLocation: we never use BLE
+         scans to derive physical location, so no location permission is needed. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="false" />
+
     <!-- Foreground service for the running workout timer -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />

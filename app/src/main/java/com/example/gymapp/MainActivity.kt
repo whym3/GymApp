@@ -1,10 +1,14 @@
 package com.example.gymapp
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -103,6 +107,7 @@ fun GymApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val manager = remember { HealthConnectManager(context) }
+    val miBand = remember { MiBandHeartRateMonitor(context) }
 
     var screen by remember { mutableStateOf(if (UserStore.loggedIn) Screen.HOME else Screen.ONBOARDING) }
     var backStackScreen by remember { mutableStateOf(Screen.HOME) }
@@ -155,6 +160,23 @@ fun GymApp() {
         scope.launch { hcGranted = manager.hasAnyPermission() }
     }
 
+    // BLE permissions (API 31+) for connecting to a broadcasting HR monitor.
+    val blePermissions = remember {
+        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+    }
+    val bleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        if (result.values.all { it }) miBand.start()
+    }
+    // Start the Mi Band / BLE HR monitor, requesting permission first if needed.
+    fun startHeartRate() {
+        val granted = blePermissions.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (granted) miBand.start() else bleLauncher.launch(blePermissions)
+    }
+
     // Rest countdown
     val restNow = rest
     LaunchedEffect(restNow) {
@@ -165,14 +187,15 @@ fun GymApp() {
         }
     }
 
-    // Live heart rate during a session — prefer the watch's on-wrist sensor,
-    // streamed live via PhoneWearSync (WatchHeartRateMonitor + Health Services),
-    // since polling Health Connect only sees whatever's already synced and can
-    // lag by minutes. Health Connect is the fallback when no watch is streaming.
+    // Live heart rate during a session. Two real-time broadcast sources feed it:
+    // the watch's on-wrist sensor (via PhoneWearSync) and a BLE heart-rate
+    // monitor such as a Mi Band in "Broadcast Heart Rate" mode (via miBand).
+    // Polling Health Connect only sees whatever's already synced and can lag by
+    // minutes, so it's the fallback used only when neither broadcaster is live.
     LaunchedEffect(inSession) {
         if (inSession) {
             while (true) {
-                if (PhoneWearSync.watchHeartRate.value == null) {
+                if (PhoneWearSync.watchHeartRate.value == null && miBand.heartRate.value == null) {
                     liveHeartRate = manager.readLatestHeartRate()?.toInt()
                 }
                 delay(15_000L)
@@ -182,6 +205,11 @@ fun GymApp() {
     LaunchedEffect(inSession) {
         if (inSession) {
             PhoneWearSync.watchHeartRate.collect { bpm -> if (bpm != null) liveHeartRate = bpm }
+        }
+    }
+    LaunchedEffect(inSession) {
+        if (inSession) {
+            miBand.heartRate.collect { bpm -> if (bpm != null) liveHeartRate = bpm }
         }
     }
 
@@ -212,6 +240,7 @@ fun GymApp() {
         finishedAvgHr = null
         watchSelectedExerciseIndex = null
         PhoneWearSync.clearWatchHeartRate()
+        startHeartRate()                  // connect to a broadcasting BLE HR monitor, if any
         Haptics.workoutStart(context)     // firm buzz on start
         WorkoutTimer.start()
         WorkoutService.start(context)
@@ -291,8 +320,10 @@ fun GymApp() {
             )
         }
         // Pull the heart rate recorded across the workout window from Health Connect.
+        // If nothing's synced there, fall back to what the BLE monitor averaged
+        // live this session (a broadcasting Mi Band may not write to HC at all).
         val startMs = sessionStartMillis
-        val fallback = liveHeartRate
+        val fallback = miBand.sessionAverage() ?: liveHeartRate
         scope.launch {
             val hrs = manager.readHeartRateBetween(Instant.ofEpochMilli(startMs), Instant.now())
             finishedAvgHr = if (hrs.isNotEmpty()) hrs.average().toInt() else fallback
@@ -307,6 +338,7 @@ fun GymApp() {
         WorkoutTimer.stop()               // service observes this and removes the notification
         exercises.clear(); rest = null; summaryData = null; finishedElapsed = 0
         liveHeartRate = null; finishedAvgHr = null; watchSelectedExerciseIndex = null
+        miBand.stop()
         PhoneWearSync.clearWatchHeartRate()
         PhoneWearSync.clearActiveWorkout(context)
     }
