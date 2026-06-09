@@ -56,8 +56,15 @@ object WatchWearSync {
         // Seed from whatever's already synced — the phone may have pushed
         // data before this listener was registered, and OnDataChangedListener
         // only fires for changes that happen *after* registration.
+        // PATH_WORKOUT_SUMMARY is intentionally excluded from the seed: it's a
+        // one-shot "good job" notification and must not replay on cold restarts.
+        // The phone deletes it via clearWorkoutSummary() once the session ends.
         client.dataItems.addOnSuccessListener { buffer ->
-            buffer.forEach { item -> applyDataItem(item.uri.path, item.data) }
+            buffer.forEach { item ->
+                if (item.uri.path != WearSync.PATH_WORKOUT_SUMMARY) {
+                    applyDataItem(item.uri.path, item.data)
+                }
+            }
             buffer.release()
         }.addOnFailureListener { Log.e(TAG, "startup snapshot: failed to fetch data items", it) }
     }

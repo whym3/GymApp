@@ -309,6 +309,7 @@ fun GymApp() {
         liveHeartRate = null; finishedAvgHr = null; watchSelectedExerciseIndex = null
         PhoneWearSync.clearWatchHeartRate()
         PhoneWearSync.clearActiveWorkout(context)
+        PhoneWearSync.clearWorkoutSummary(context)
     }
     fun saveWorkout() {
         val now = System.currentTimeMillis()

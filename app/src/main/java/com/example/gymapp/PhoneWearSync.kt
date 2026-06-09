@@ -152,4 +152,11 @@ object PhoneWearSync {
         Wearable.getDataClient(context.applicationContext).deleteDataItems(uri)
             .addOnFailureListener { Log.e(TAG, "clearActiveWorkout: failed", it) }
     }
+
+    /** Remove the one-shot summary so it doesn't replay on watch app restarts after the session is dismissed. */
+    fun clearWorkoutSummary(context: Context) {
+        val uri = PutDataRequest.create(WearSync.PATH_WORKOUT_SUMMARY).uri
+        Wearable.getDataClient(context.applicationContext).deleteDataItems(uri)
+            .addOnFailureListener { Log.e(TAG, "clearWorkoutSummary: failed", it) }
+    }
 }
