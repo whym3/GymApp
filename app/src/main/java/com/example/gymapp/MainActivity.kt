@@ -433,6 +433,14 @@ fun GymApp() {
         }
     }
     LaunchedEffect(Unit) {
+        PhoneWearSync.saveWorkoutRequested.collect { if (screen == Screen.SUMMARY) saveWorkout() }
+    }
+    LaunchedEffect(Unit) {
+        PhoneWearSync.discardWorkoutRequested.collect {
+            if (screen == Screen.SUMMARY) { endSession(); screen = Screen.HOME }
+        }
+    }
+    LaunchedEffect(Unit) {
         PhoneWearSync.selectExerciseRequests.collect { index ->
             if (WorkoutTimer.state.value.active && index in exercises.indices) {
                 watchSelectedExerciseIndex = index

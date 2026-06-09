@@ -62,6 +62,12 @@ object WearSync {
     /** Phone → watch: one saved workout's full detail, sent in reply to [PATH_REQUEST_WORKOUT_DETAIL]. */
     const val PATH_WORKOUT_DETAIL = "/gymapp/workout-detail"
 
+    /** Watch → phone: save the just-finished session. No payload. */
+    const val PATH_SAVE_WORKOUT = "/gymapp/save-workout"
+
+    /** Watch → phone: discard the just-finished session. No payload. */
+    const val PATH_DISCARD_WORKOUT = "/gymapp/discard-workout"
+
     /**
      * Mirror of the active session for the watch screen. [exercises] lists every
      * exercise's name so the watch can offer a picker; [currentExerciseIndex]

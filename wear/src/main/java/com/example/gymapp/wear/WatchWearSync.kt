@@ -114,6 +114,12 @@ object WatchWearSync {
     /** End the session and jump to the summary screen. */
     suspend fun sendFinishWorkout(context: Context) = sendCommand(context, WearSync.PATH_FINISH_WORKOUT)
 
+    /** Save the just-finished session. */
+    suspend fun sendSaveWorkout(context: Context) = sendCommand(context, WearSync.PATH_SAVE_WORKOUT)
+
+    /** Discard the just-finished session without saving. */
+    suspend fun sendDiscardWorkout(context: Context) = sendCommand(context, WearSync.PATH_DISCARD_WORKOUT)
+
     /** Make the given exercise (zero-based index into [WearSync.ActiveWorkoutSnapshot.exercises]) the remote's target. */
     suspend fun sendSelectExercise(context: Context, index: Int) =
         sendMessage(context, WearSync.PATH_SELECT_EXERCISE, WearSync.encodeIndex(index))

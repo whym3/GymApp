@@ -71,7 +71,6 @@ import com.example.gymapp.formatVolume
 import com.example.gymapp.formatWorkoutDate
 import com.google.android.horologist.compose.ambient.AmbientAware
 import com.google.android.horologist.compose.ambient.AmbientState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // The wear module doesn't share the phone app's Material theme, so these
@@ -528,19 +527,10 @@ private fun HistoryExerciseCard(ex: WorkoutExercise) {
     }
 }
 
-/**
- * Glanceable recap shown the moment a session ends — the wearer's hands are
- * usually full putting equipment away, so this auto-dismisses back to the
- * idle dashboard after a few seconds (a "Done" chip lets them skip the wait).
- */
 @Composable
 private fun WorkoutSummaryScreen(summary: WearSync.WorkoutSummary, onDismiss: () -> Unit) {
     val context = LocalContext.current
-
-    LaunchedEffect(summary) {
-        delay(6_000)
-        onDismiss()
-    }
+    val scope = rememberCoroutineScope()
 
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -561,14 +551,36 @@ private fun WorkoutSummaryScreen(summary: WearSync.WorkoutSummary, onDismiss: ()
         item { StatRow(Icons.Rounded.FitnessCenter, AccentColor, "Sets", summary.totalSets.toString()) }
         item { StatRow(Icons.Rounded.LocalFireDepartment, AccentColor, "Volume", "${summary.totalVolumeKg} kg") }
         item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Brush.linearGradient(listOf(AccentBrightColor, AccentColor)))
+                    .clickable {
+                        Haptics.workoutComplete(context)
+                        scope.launch {
+                            WatchWearSync.sendSaveWorkout(context)
+                            onDismiss()
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Save workout", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+        }
+        item {
             Chip(
                 onClick = {
                     Haptics.repComplete(context)
-                    onDismiss()
+                    scope.launch {
+                        WatchWearSync.sendDiscardWorkout(context)
+                        onDismiss()
+                    }
                 },
-                label = { Text("Done") },
-                colors = ChipDefaults.primaryChipColors(),
-                modifier = Modifier.padding(top = 8.dp),
+                label = { Text("Discard") },
+                colors = ChipDefaults.secondaryChipColors(),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
