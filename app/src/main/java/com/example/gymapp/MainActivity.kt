@@ -124,6 +124,11 @@ fun GymApp() {
     var sessionStartMillis by remember { mutableLongStateOf(0L) }
     var liveHeartRate by remember { mutableStateOf<Int?>(null) }
     var finishedAvgHr by remember { mutableStateOf<Int?>(null) }
+    // Steps/calories burned so far this session, streamed live from the watch.
+    var liveWorkoutSteps by remember { mutableStateOf<Long?>(null) }
+    var liveWorkoutCalories by remember { mutableStateOf<Double?>(null) }
+    // (elapsedSec, bpm) samples taken across the session, for the post-workout HR graph.
+    val hrSamples = remember { mutableStateListOf<Pair<Int, Int>>() }
     // Which exercise the watch remote is targeting, if the user picked one there — see watchCurrentTarget()
     var watchSelectedExerciseIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -145,11 +150,11 @@ fun GymApp() {
         hcGranted = manager.hasAnyPermission()
         val steps = manager.readTodaySteps()
         val cals = manager.readTodayActiveCalories()
-        val hr = manager.readTodayHeartRate().lastOrNull()?.second
+        val latestHr = manager.readLatestHeartRate()?.toInt()
         todayStats = TodayStats(
             steps = steps?.let { String.format(Locale.US, "%,d", it) } ?: "—",
             calories = cals?.let { it.toInt().toString() } ?: "—",
-            heartRate = hr?.toString() ?: "—",
+            heartRate = latestHr?.toString() ?: "—",
         )
         PhoneWearSync.pushTodayStats(context, todayStats)   // mirror to a paired watch, if any
     }
@@ -212,6 +217,24 @@ fun GymApp() {
             miBand.heartRate.collect { bpm -> if (bpm != null) liveHeartRate = bpm }
         }
     }
+    // Sample heart rate over time during the session, for the post-workout graph.
+    // bpm <= 0 readings are sensor warm-up noise, not real measurements.
+    LaunchedEffect(inSession, liveHeartRate) {
+        val bpm = liveHeartRate
+        if (inSession && bpm != null && bpm > 0) hrSamples.add(WorkoutTimer.elapsed to bpm)
+    }
+
+    // Steps + active calories burned this session, streamed live from the watch.
+    LaunchedEffect(inSession) {
+        if (inSession) {
+            PhoneWearSync.sessionSteps.collect { steps -> if (steps != null) liveWorkoutSteps = steps }
+        }
+    }
+    LaunchedEffect(inSession) {
+        if (inSession) {
+            PhoneWearSync.sessionCalories.collect { cals -> if (cals != null) liveWorkoutCalories = cals }
+        }
+    }
 
     // Refresh Health Connect dashboard whenever we land on Home/Profile
     LaunchedEffect(screen, UserStore.loggedIn) {
@@ -238,8 +261,12 @@ fun GymApp() {
         sessionStartMillis = System.currentTimeMillis()
         liveHeartRate = null
         finishedAvgHr = null
+        liveWorkoutSteps = null
+        liveWorkoutCalories = null
+        hrSamples.clear()
         watchSelectedExerciseIndex = null
         PhoneWearSync.clearWatchHeartRate()
+        PhoneWearSync.clearSessionActivity()
         startHeartRate()                  // connect to a broadcasting BLE HR monitor, if any
         Haptics.workoutStart(context)     // firm buzz on start
         WorkoutTimer.start()
@@ -309,7 +336,10 @@ fun GymApp() {
     fun finishWorkout() {
         Haptics.workoutComplete(context)  // two short pulses on finish
         finishedElapsed = WorkoutTimer.elapsed
-        summaryData = buildSummary(sessionTitle, finishedElapsed, exercises.toList())
+        summaryData = buildSummary(
+            sessionTitle, finishedElapsed, exercises.toList(),
+            steps = liveWorkoutSteps, calories = liveWorkoutCalories, hrSamples = hrSamples.toList(),
+        )
         summaryData?.let { data ->
             // Glanceable recap for the watch — sent before clearActiveWorkout()
             // below drops it back to idle, so it has something to show first.
@@ -338,8 +368,10 @@ fun GymApp() {
         WorkoutTimer.stop()               // service observes this and removes the notification
         exercises.clear(); rest = null; summaryData = null; finishedElapsed = 0
         liveHeartRate = null; finishedAvgHr = null; watchSelectedExerciseIndex = null
+        liveWorkoutSteps = null; liveWorkoutCalories = null; hrSamples.clear()
         miBand.stop()
         PhoneWearSync.clearWatchHeartRate()
+        PhoneWearSync.clearSessionActivity()
         PhoneWearSync.clearActiveWorkout(context)
         PhoneWearSync.clearWorkoutSummary(context)
     }
@@ -590,6 +622,8 @@ fun GymApp() {
                         elapsed = timerState.elapsedSec,
                         running = timerState.running,
                         heartRate = liveHeartRate,
+                        steps = liveWorkoutSteps,
+                        calories = liveWorkoutCalories,
                         rest = rest,
                         onFinish = { finishWorkout() },
                         onTogglePause = { WorkoutTimer.toggle() },

@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -38,6 +39,8 @@ fun ActiveWorkoutScreen(
     elapsed: Int,
     running: Boolean,
     heartRate: Int?,
+    steps: Long?,
+    calories: Double?,
     rest: Int?,
     onFinish: () -> Unit,
     onTogglePause: () -> Unit,
@@ -95,19 +98,6 @@ fun ActiveWorkoutScreen(
                                 color = TextColor,
                             )
                         }
-                        if (heartRate != null) {
-                            Spacer(Modifier.height(6.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                modifier = Modifier
-                                    .background(MuscleChest.copy(alpha = 0.12f), RoundedCornerShape(99.dp))
-                                    .padding(horizontal = 9.dp, vertical = 3.dp),
-                            ) {
-                                Icon(Icons.Rounded.Favorite, null, tint = MuscleChest, modifier = Modifier.size(12.dp))
-                                Text("$heartRate bpm", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MuscleChest)
-                            }
-                        }
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -136,6 +126,20 @@ fun ActiveWorkoutScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
                         ) {
                             Text("Finish", fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+                if (heartRate != null || steps != null || calories != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (heartRate != null) {
+                            LiveStatChip(Icons.Rounded.Favorite, "$heartRate bpm", MuscleChest)
+                        }
+                        if (steps != null) {
+                            LiveStatChip(Icons.Rounded.DirectionsWalk, "$steps steps", MuscleBack)
+                        }
+                        if (calories != null) {
+                            LiveStatChip(Icons.Rounded.LocalFireDepartment, "${calories.toInt()} kcal", WarmupAmber)
                         }
                     }
                 }
@@ -652,4 +656,18 @@ private fun SetInput(
             }
         },
     )
+}
+
+@Composable
+private fun LiveStatChip(icon: ImageVector, text: String, color: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = Modifier
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(99.dp))
+            .padding(horizontal = 9.dp, vertical = 3.dp),
+    ) {
+        Icon(icon, null, tint = color, modifier = Modifier.size(12.dp))
+        Text(text, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = color)
+    }
 }
