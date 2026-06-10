@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- ExerciseDB API for exercise demo GIFs -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Notifications (workout timer + rest timer) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 

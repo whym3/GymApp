@@ -47,6 +47,12 @@ object PhoneWearSync {
     private val _watchHeartRate = MutableStateFlow<Int?>(null)
     val watchHeartRate: StateFlow<Int?> = _watchHeartRate.asStateFlow()
 
+    private val _saveWorkoutRequested = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val saveWorkoutRequested: SharedFlow<Unit> = _saveWorkoutRequested.asSharedFlow()
+
+    private val _discardWorkoutRequested = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val discardWorkoutRequested: SharedFlow<Unit> = _discardWorkoutRequested.asSharedFlow()
+
     private var listener: MessageClient.OnMessageReceivedListener? = null
 
     fun init(context: Context) {
@@ -67,6 +73,8 @@ object PhoneWearSync {
                 WearSync.PATH_REQUEST_WORKOUT_DETAIL -> WearSync.decodeId(event.data)?.let { id ->
                     WorkoutRepository.workouts.find { it.id == id }?.let { pushWorkoutDetail(context.applicationContext, it) }
                 }
+                WearSync.PATH_SAVE_WORKOUT -> _saveWorkoutRequested.tryEmit(Unit)
+                WearSync.PATH_DISCARD_WORKOUT -> _discardWorkoutRequested.tryEmit(Unit)
             }
         }
         listener = l
@@ -143,5 +151,12 @@ object PhoneWearSync {
         val uri = PutDataRequest.create(WearSync.PATH_ACTIVE_WORKOUT).uri
         Wearable.getDataClient(context.applicationContext).deleteDataItems(uri)
             .addOnFailureListener { Log.e(TAG, "clearActiveWorkout: failed", it) }
+    }
+
+    /** Remove the one-shot summary so it doesn't replay on watch app restarts after the session is dismissed. */
+    fun clearWorkoutSummary(context: Context) {
+        val uri = PutDataRequest.create(WearSync.PATH_WORKOUT_SUMMARY).uri
+        Wearable.getDataClient(context.applicationContext).deleteDataItems(uri)
+            .addOnFailureListener { Log.e(TAG, "clearWorkoutSummary: failed", it) }
     }
 }

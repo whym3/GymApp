@@ -56,8 +56,15 @@ object WatchWearSync {
         // Seed from whatever's already synced — the phone may have pushed
         // data before this listener was registered, and OnDataChangedListener
         // only fires for changes that happen *after* registration.
+        // PATH_WORKOUT_SUMMARY is intentionally excluded from the seed: it's a
+        // one-shot "good job" notification and must not replay on cold restarts.
+        // The phone deletes it via clearWorkoutSummary() once the session ends.
         client.dataItems.addOnSuccessListener { buffer ->
-            buffer.forEach { item -> applyDataItem(item.uri.path, item.data) }
+            buffer.forEach { item ->
+                if (item.uri.path != WearSync.PATH_WORKOUT_SUMMARY) {
+                    applyDataItem(item.uri.path, item.data)
+                }
+            }
             buffer.release()
         }.addOnFailureListener { Log.e(TAG, "startup snapshot: failed to fetch data items", it) }
     }
@@ -113,6 +120,12 @@ object WatchWearSync {
 
     /** End the session and jump to the summary screen. */
     suspend fun sendFinishWorkout(context: Context) = sendCommand(context, WearSync.PATH_FINISH_WORKOUT)
+
+    /** Save the just-finished session. */
+    suspend fun sendSaveWorkout(context: Context) = sendCommand(context, WearSync.PATH_SAVE_WORKOUT)
+
+    /** Discard the just-finished session without saving. */
+    suspend fun sendDiscardWorkout(context: Context) = sendCommand(context, WearSync.PATH_DISCARD_WORKOUT)
 
     /** Make the given exercise (zero-based index into [WearSync.ActiveWorkoutSnapshot.exercises]) the remote's target. */
     suspend fun sendSelectExercise(context: Context, index: Int) =

@@ -6,6 +6,7 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -24,6 +25,7 @@ class HealthConnectManager(private val context: Context) {
     val permissions: Set<String> = setOf(
         HealthPermission.getReadPermission(StepsRecord::class),
         HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
         HealthPermission.getReadPermission(WeightRecord::class),
         HealthPermission.getReadPermission(HeartRateRecord::class),
     )
@@ -95,14 +97,25 @@ class HealthConnectManager(private val context: Context) {
 
     suspend fun readTodayActiveCalories(): Double? {
         val c = client ?: return null
+        // Try ActiveCaloriesBurnedRecord first (workout-only burn). If it returns nothing
+        // (common on watches that write daily totals instead), fall back to
+        // TotalCaloriesBurnedRecord which includes basal + active calories for the day.
         return runCatching {
-            val resp = c.aggregate(
+            val active = c.aggregate(
                 AggregateRequest(
                     metrics = setOf(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL),
                     timeRangeFilter = todayRange(),
                 )
-            )
-            resp[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories
+            )[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories
+
+            if (active != null && active > 0.0) return@runCatching active
+
+            c.aggregate(
+                AggregateRequest(
+                    metrics = setOf(TotalCaloriesBurnedRecord.ENERGY_TOTAL),
+                    timeRangeFilter = todayRange(),
+                )
+            )[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories
         }.getOrNull()
     }
 

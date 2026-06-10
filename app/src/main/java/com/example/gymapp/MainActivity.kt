@@ -309,6 +309,7 @@ fun GymApp() {
         liveHeartRate = null; finishedAvgHr = null; watchSelectedExerciseIndex = null
         PhoneWearSync.clearWatchHeartRate()
         PhoneWearSync.clearActiveWorkout(context)
+        PhoneWearSync.clearWorkoutSummary(context)
     }
     fun saveWorkout() {
         val now = System.currentTimeMillis()
@@ -397,6 +398,7 @@ fun GymApp() {
             currentExerciseIndex = target?.first ?: 0,
             currentWeight = targetSet?.weight.orEmpty(),
             currentReps = targetSet?.reps.orEmpty(),
+            currentSetType = targetSet?.type ?: SetType.NORMAL,
         )
     } else null
     LaunchedEffect(activeSnapshot) {
@@ -429,6 +431,14 @@ fun GymApp() {
                 ActiveWorkoutCommand.ADD_REST -> rest = (rest ?: 0) + 15
                 ActiveWorkoutCommand.SKIP_REST -> rest = null
             }
+        }
+    }
+    LaunchedEffect(Unit) {
+        PhoneWearSync.saveWorkoutRequested.collect { if (screen == Screen.SUMMARY) saveWorkout() }
+    }
+    LaunchedEffect(Unit) {
+        PhoneWearSync.discardWorkoutRequested.collect {
+            if (screen == Screen.SUMMARY) { endSession(); screen = Screen.HOME }
         }
     }
     LaunchedEffect(Unit) {
