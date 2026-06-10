@@ -39,6 +39,7 @@ fun ExerciseSearchSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query  by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf<String?>(null) }
+    var detailExercise by remember { mutableStateOf<ExerciseLibraryItem?>(null) }
     // Pre-populate with exercises already in the session
     val added  = remember { mutableStateMapOf<String, Boolean>().also { map -> currentExerciseNames.forEach { map[it] = true } } }
 
@@ -205,7 +206,12 @@ fun ExerciseSearchSheet(
                             Box(
                                 modifier = Modifier
                                     .size(42.dp)
-                                    .background(col.copy(alpha = 0.11f), RoundedCornerShape(12.dp)),
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(col.copy(alpha = 0.11f))
+                                    .clickable {
+                                        Haptics.tick(context)
+                                        detailExercise = ex
+                                    },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(Icons.Rounded.FitnessCenter, null, tint = col, modifier = Modifier.size(20.dp))
@@ -243,5 +249,9 @@ fun ExerciseSearchSheet(
                 }
             }
         }
+    }
+
+    detailExercise?.let { ex ->
+        ExerciseDetailSheet(exercise = ex, onClose = { detailExercise = null })
     }
 }
