@@ -27,4 +27,12 @@ object Motion {
     val effectsFloat: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 1400f)
 
     val popFloat: SpringSpec<Float> = spring(dampingRatio = 0.55f, stiffness = 650f)
+
+    // Generic factories for value types without a dedicated constant (Color, IntSize, …)
+    fun <T> spatial(): SpringSpec<T> = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS)
+    fun <T> effects(): SpringSpec<T> = spring(dampingRatio = 1f, stiffness = 1400f)
+    fun <T> pop(): SpringSpec<T> = spring(dampingRatio = 0.55f, stiffness = 650f)
+
+    /** Slow ambient drift for environmental color shifts (HR-zone tint). */
+    fun <T> drift(): SpringSpec<T> = spring(dampingRatio = 1f, stiffness = 40f)
 }

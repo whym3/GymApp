@@ -180,8 +180,10 @@ fun GymApp() {
     var sessionTitle by remember { mutableStateOf("Workout") }
     var finishedElapsed by remember { mutableIntStateOf(0) }
     // Rest countdown, anchored to a monotonic deadline; `rest` is the displayed
-    // whole-second remainder, derived by the effect below.
+    // whole-second remainder, derived by the effect below. `restTotalMs` is the
+    // full span of the current rest (grows on +15s) for the pill's drain ring.
     var restDeadlineMs by remember { mutableStateOf<Long?>(null) }
+    var restTotalMs by remember { mutableStateOf<Long?>(null) }
     var rest by remember { mutableStateOf<Int?>(null) }
     var showSearch by remember { mutableStateOf(false) }
     var sessionStartMillis by remember { mutableLongStateOf(0L) }
@@ -249,13 +251,16 @@ fun GymApp() {
     // restarting a 1s sleep, so the remaining time never stretches or drifts.
     fun startRest(seconds: Int) {
         restDeadlineMs = SystemClock.elapsedRealtime() + seconds * 1000L
+        restTotalMs = seconds * 1000L
     }
     fun extendRest(seconds: Int) {
         val now = SystemClock.elapsedRealtime()
         restDeadlineMs = maxOf(restDeadlineMs ?: now, now) + seconds * 1000L
+        restTotalMs = (restTotalMs ?: 0L) + seconds * 1000L
     }
     fun clearRest() {
         restDeadlineMs = null
+        restTotalMs = null
         rest = null
     }
     LaunchedEffect(restDeadlineMs) {
@@ -268,6 +273,7 @@ fun GymApp() {
         }
         rest = null
         restDeadlineMs = null
+        restTotalMs = null
     }
 
     // Live heart rate during a session. Two real-time broadcast sources feed it:
@@ -767,12 +773,12 @@ fun GymApp() {
 
                     Screen.ACTIVE_WORKOUT -> ActiveWorkoutScreen(
                         exercises = exercises,
-                        elapsed = timerState.elapsedSec,
                         running = timerState.running,
                         heartRate = liveHeartRate,
                         steps = liveWorkoutSteps,
                         calories = liveWorkoutCalories,
-                        rest = rest,
+                        restDeadlineMs = restDeadlineMs,
+                        restTotalMs = restTotalMs,
                         onFinish = { finishWorkout() },
                         onTogglePause = { WorkoutTimer.toggle() },
                         onOpenSearch = { showSearch = true },
