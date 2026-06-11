@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -43,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.AutoCenteringParams
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
+import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.Icon
@@ -69,6 +73,8 @@ internal fun IdleScreen(onOpenHistory: () -> Unit) {
     val listState = rememberScalingLazyListState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val rotaryFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { rotaryFocus.requestFocus() }
     val pushed by WatchWearSync.todayStats.collectAsState()
     val history by WatchWearSync.workoutHistory.collectAsState()
 
@@ -90,7 +96,9 @@ internal fun IdleScreen(onOpenHistory: () -> Unit) {
     ) {
         ScalingLazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .rotaryScrollable(RotaryScrollableDefaults.behavior(listState), rotaryFocus),
             // Round: no autoCentering — items stack from top so the arc cards land in
             // positions where onGloballyPositioned gives a sensible horizontal inset.
             // Top padding clears the TimeText overlay.

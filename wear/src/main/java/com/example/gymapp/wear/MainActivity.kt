@@ -8,6 +8,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -121,26 +127,49 @@ fun WearApp() {
     }
 
     MaterialTheme {
-        when {
-            // Show recap even after active goes null — gives the wearer glanceable confirmation
-            summary != null -> WorkoutSummaryScreen(
-                summary = summary!!,
-                onDismiss = { WatchWearSync.consumeWorkoutSummary() },
-            )
-            active != null -> ActiveWorkoutScreen(active!!, onWristBpm)
-            selectedEntry != null -> HistoryDetailScreen(
-                workout = detail?.takeIf { it.id == selectedEntry!!.id },
-                onBack = {
-                    selectedEntry = null
-                    WatchWearSync.consumeWorkoutDetail()
-                },
-            )
-            showHistory -> HistoryListScreen(
-                entries = history,
-                onOpen = { selectedEntry = it },
-                onBack = { showHistory = false },
-            )
-            else -> IdleScreen(onOpenHistory = { showHistory = true })
+        // Fade-through between top-level watch screens instead of hard cuts.
+        // Recap stays visible even after active goes null — glanceable confirmation.
+        val screenKey = when {
+            summary != null -> WatchScreen.SUMMARY
+            active != null -> WatchScreen.ACTIVE
+            selectedEntry != null -> WatchScreen.DETAIL
+            showHistory -> WatchScreen.HISTORY
+            else -> WatchScreen.IDLE
+        }
+        AnimatedContent(
+            targetState = screenKey,
+            transitionSpec = {
+                (fadeIn(tween(220)) + scaleIn(initialScale = 0.94f, animationSpec = tween(220)))
+                    .togetherWith(fadeOut(tween(140)))
+            },
+            label = "watchScreen",
+        ) { key ->
+            when (key) {
+                WatchScreen.SUMMARY -> summary?.let {
+                    WorkoutSummaryScreen(
+                        summary = it,
+                        onDismiss = { WatchWearSync.consumeWorkoutSummary() },
+                    )
+                }
+                WatchScreen.ACTIVE -> active?.let { ActiveWorkoutScreen(it, onWristBpm) }
+                WatchScreen.DETAIL -> selectedEntry?.let { entry ->
+                    HistoryDetailScreen(
+                        workout = detail?.takeIf { it.id == entry.id },
+                        onBack = {
+                            selectedEntry = null
+                            WatchWearSync.consumeWorkoutDetail()
+                        },
+                    )
+                }
+                WatchScreen.HISTORY -> HistoryListScreen(
+                    entries = history,
+                    onOpen = { selectedEntry = it },
+                    onBack = { showHistory = false },
+                )
+                WatchScreen.IDLE -> IdleScreen(onOpenHistory = { showHistory = true })
+            }
         }
     }
 }
+
+private enum class WatchScreen { SUMMARY, ACTIVE, DETAIL, HISTORY, IDLE }
