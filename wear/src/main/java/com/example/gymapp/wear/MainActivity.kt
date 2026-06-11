@@ -76,15 +76,24 @@ fun WearApp() {
         ) activityPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
     }
 
-    // Stream heart-rate sensor only while a set is actually running (saves battery)
+    // Drive a Health Services *exercise* session in lockstep with the phone's
+    // workout. ExerciseClient is the only live path for in-workout steps/kcal
+    // (passive monitoring batches daily totals with unbounded latency, so its
+    // values sit frozen mid-session) and it streams on-wrist HR too.
     val running = active?.running == true
     val inSession = active != null
-    LaunchedEffect(running) {
-        if (running) WatchHeartRateMonitor.start(context) else WatchHeartRateMonitor.stop(context)
+    LaunchedEffect(inSession) {
+        if (inSession) WatchExerciseMonitor.start(context) else WatchExerciseMonitor.stop(context)
     }
-    // Relay readings to the phone at most once every 2s — the sensor emits ~1/s
-    // and each relay is a radio wake-up on both devices.
-    val onWristBpm by WatchHeartRateMonitor.bpm.collectAsState()
+    LaunchedEffect(running, inSession) {
+        if (inSession) {
+            if (running) WatchExerciseMonitor.resume(context) else WatchExerciseMonitor.pause(context)
+        }
+    }
+
+    // Relay HR to the phone at most once every 2s — each relay is a radio
+    // wake-up on both devices.
+    val onWristBpm by WatchExerciseMonitor.heartRate.collectAsState()
     var lastHrRelayMs by remember { mutableStateOf(0L) }
     LaunchedEffect(onWristBpm) {
         val bpm = onWristBpm ?: return@LaunchedEffect
@@ -95,35 +104,18 @@ fun WearApp() {
         }
     }
 
-    // Tracked continuously (not just during a session) so a baseline is
-    // already available the moment a workout starts.
+    // Daily totals for the idle dashboard only (slow, batched — fine there).
     LaunchedEffect(Unit) { WatchActivityMonitor.start(context) }
-    val watchSteps by WatchActivityMonitor.steps.collectAsState()
-    val watchCalories by WatchActivityMonitor.calories.collectAsState()
 
-    // While a session exists, stream steps/calories burned *this workout* as
-    // the delta from the totals captured the moment it started. Keyed on the
-    // session's existence, NOT the running flag — pausing must not drop the
-    // baseline, or everything accumulated before the pause is lost on resume.
-    var sessionBaseline by remember { mutableStateOf<Pair<Long, Double>?>(null) }
-    LaunchedEffect(inSession, watchSteps, watchCalories) {
-        if (inSession && sessionBaseline == null) {
-            val steps = watchSteps
-            val cals = watchCalories
-            if (steps != null && cals != null) sessionBaseline = steps to cals
-        } else if (!inSession) {
-            sessionBaseline = null
+    // Live session steps/kcal: exercise totals are cumulative since the
+    // session started, so they relay as-is — no baseline subtraction, and
+    // pausing can't lose anything.
+    val sessionSteps by WatchExerciseMonitor.steps.collectAsState()
+    val sessionCalories by WatchExerciseMonitor.calories.collectAsState()
+    LaunchedEffect(sessionSteps, sessionCalories) {
+        if (inSession && (sessionSteps != null || sessionCalories != null)) {
+            WatchWearSync.sendSessionActivity(context, sessionSteps ?: 0L, sessionCalories ?: 0.0)
         }
-    }
-    LaunchedEffect(watchSteps, watchCalories, sessionBaseline) {
-        val baseline = sessionBaseline ?: return@LaunchedEffect
-        val steps = watchSteps ?: return@LaunchedEffect
-        val cals = watchCalories ?: return@LaunchedEffect
-        WatchWearSync.sendSessionActivity(
-            context,
-            (steps - baseline.first).coerceAtLeast(0L),
-            (cals - baseline.second).coerceAtLeast(0.0),
-        )
     }
 
     MaterialTheme {
