@@ -1,6 +1,8 @@
 package com.example.gymapp
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,11 +16,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -26,6 +30,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -92,37 +97,48 @@ fun BottomNav(active: NavItem, onNav: (NavItem) -> Unit) {
                 .navigationBarsPadding()
                 .padding(bottom = 4.dp),
         ) {
+            val context = LocalContext.current
             navEntries.forEach { entry ->
                 val on = active == entry.item
+                // Selection feedback: pill tint + icon color spring in, icon pops
+                val pillBg by animateColorAsState(
+                    if (on) AccentSoftColor else Color.Transparent, Motion.effects(), label = "navPill",
+                )
+                val tint by animateColorAsState(
+                    if (on) AccentColor else MutedColor, Motion.effects(), label = "navTint",
+                )
+                val iconScale by animateFloatAsState(
+                    if (on) 1f else 0.9f, Motion.popFloat, label = "navScale",
+                )
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clickable { onNav(entry.item) }
+                        .clickable {
+                            if (!on) Haptics.tick(context)
+                            onNav(entry.item)
+                        }
                         .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Box(
                         modifier = Modifier
-                            .background(
-                                if (on) AccentSoftColor else Color.Transparent,
-                                RoundedCornerShape(99.dp)
-                            )
+                            .background(pillBg, RoundedCornerShape(99.dp))
                             .padding(horizontal = 14.dp, vertical = 3.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = entry.icon,
                             contentDescription = entry.label,
-                            tint = if (on) AccentColor else MutedColor,
-                            modifier = Modifier.size(22.dp),
+                            tint = tint,
+                            modifier = Modifier.size(22.dp).scale(iconScale),
                         )
                     }
                     Text(
                         text = entry.label,
                         fontSize = 10.5.sp,
                         fontWeight = if (on) FontWeight.Bold else FontWeight.SemiBold,
-                        color = if (on) AccentColor else MutedColor,
+                        color = tint,
                     )
                 }
             }
