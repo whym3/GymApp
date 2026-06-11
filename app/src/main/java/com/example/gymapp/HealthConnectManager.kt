@@ -97,25 +97,22 @@ class HealthConnectManager(private val context: Context) {
 
     suspend fun readTodayActiveCalories(): Double? {
         val c = client ?: return null
-        // Try ActiveCaloriesBurnedRecord first (workout-only burn). If it returns nothing
-        // (common on watches that write daily totals instead), fall back to
-        // TotalCaloriesBurnedRecord which includes basal + active calories for the day.
+        // Both metrics in one aggregate. Prefer ActiveCaloriesBurnedRecord
+        // (workout-only burn); fall back to TotalCaloriesBurnedRecord (basal +
+        // active) for sources that only write daily totals.
         return runCatching {
-            val active = c.aggregate(
+            val resp = c.aggregate(
                 AggregateRequest(
-                    metrics = setOf(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL),
+                    metrics = setOf(
+                        ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
+                        TotalCaloriesBurnedRecord.ENERGY_TOTAL,
+                    ),
                     timeRangeFilter = todayRange(),
                 )
-            )[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories
-
-            if (active != null && active > 0.0) return@runCatching active
-
-            c.aggregate(
-                AggregateRequest(
-                    metrics = setOf(TotalCaloriesBurnedRecord.ENERGY_TOTAL),
-                    timeRangeFilter = todayRange(),
-                )
-            )[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories
+            )
+            val active = resp[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories
+            if (active != null && active > 0.0) active
+            else resp[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories
         }.getOrNull()
     }
 

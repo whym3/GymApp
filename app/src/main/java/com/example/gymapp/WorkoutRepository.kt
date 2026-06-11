@@ -2,6 +2,13 @@ package com.example.gymapp
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -15,35 +22,60 @@ import java.time.ZoneId
  *
  * No external persistence library is used (org.json ships with Android), which
  * keeps the build free of annotation processors / compiler plugins.
+ *
+ * Mutations apply to the in-memory list immediately; the JSON encode + file
+ * write happen on [Dispatchers.IO] (serialized by a mutex) so saving a workout
+ * never janks the UI thread.
  */
 object WorkoutRepository {
 
     private val _workouts = mutableStateListOf<SavedWorkout>()
     val workouts: List<SavedWorkout> get() = _workouts
 
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val writeMutex = Mutex()
+
     fun init(context: Context) {
-        reload(context)
+        // Blocking on purpose: runs once in onCreate and the first frame needs the data.
+        applyLoaded(readFromDisk(context))
     }
 
     /** (Re)load the current account's workouts from disk. */
-    fun reload(context: Context) {
+    suspend fun reload(context: Context) {
+        val items = withContext(Dispatchers.IO) { readFromDisk(context) }
+        applyLoaded(items)
+    }
+
+    private fun applyLoaded(items: List<SavedWorkout>) {
         _workouts.clear()
-        _workouts.addAll(readFromDisk(context).sortedByDescending { it.dateMillis })
+        _workouts.addAll(items.sortedByDescending { it.dateMillis })
     }
 
     fun add(context: Context, workout: SavedWorkout) {
         _workouts.add(0, workout)
-        writeToDisk(context)
+        persistAsync(context)
     }
 
     fun delete(context: Context, id: Long) {
         _workouts.removeAll { it.id == id }
-        writeToDisk(context)
+        persistAsync(context)
     }
 
     fun deleteAll(context: Context) {
         _workouts.clear()
-        runCatching { file(context).delete() }
+        val f = file(context)
+        ioScope.launch { writeMutex.withLock { runCatching { f.delete() } } }
+    }
+
+    /** Snapshot the list + target file now (account may switch later), write on IO. */
+    private fun persistAsync(context: Context) {
+        val snapshot = _workouts.toList()
+        val f = file(context)
+        ioScope.launch {
+            writeMutex.withLock {
+                runCatching { f.writeText(encode(snapshot)) }
+            }
+        }
     }
 
     val totalWorkouts: Int get() = _workouts.size
@@ -125,9 +157,9 @@ object WorkoutRepository {
         return File(context.filesDir, "workouts_$id.json")
     }
 
-    private fun writeToDisk(context: Context) {
+    private fun encode(workouts: List<SavedWorkout>): String {
         val arr = JSONArray()
-        _workouts.forEach { w ->
+        workouts.forEach { w ->
             val exArr = JSONArray()
             w.exercises.forEach { ex ->
                 val setArr = JSONArray()
@@ -162,7 +194,7 @@ object WorkoutRepository {
                     .put("exercises", exArr)
             )
         }
-        runCatching { file(context).writeText(arr.toString()) }
+        return arr.toString()
     }
 
     private fun readFromDisk(context: Context): List<SavedWorkout> {

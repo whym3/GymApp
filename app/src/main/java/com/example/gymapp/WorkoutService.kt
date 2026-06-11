@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -51,7 +52,13 @@ class WorkoutService : Service() {
         if (!observing) {
             observing = true
             scope.launch {
+                // The clock is a chronometer (ticks by itself), so skip emissions
+                // where only elapsedSec changed — re-notify just for pause/resume,
+                // session end, or set-progress changes.
                 combine(WorkoutTimer.state, WorkoutProgress.state) { timer, progress -> timer to progress }
+                    .distinctUntilChanged { (t1, p1), (t2, p2) ->
+                        t1.active == t2.active && t1.running == t2.running && p1 == p2
+                    }
                     .collect { (s, progress) ->
                         if (!s.active) {
                             // Workout ended — tear the ongoing notification down for good.
@@ -133,23 +140,23 @@ class WorkoutService : Service() {
             .addAction(finish)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
+        // Chronometer ticks the elapsed time on every OS version, so the clock
+        // advances without a notify() per second; while paused, show it frozen.
+        builder.setShowWhen(s.running)
+        builder.setUsesChronometer(s.running)
+        if (s.running) builder.setWhen(System.currentTimeMillis() - s.elapsedSec * 1000L)
+        builder.setContentText(
+            if (s.running) setLabel
+            else listOfNotNull(setLabel, formatClock(s.elapsedSec)).joinToString(" · ")
+        )
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-            // Live Update: progress bar segmented per exercise, status-bar chip,
-            // and a chronometer so the elapsed time ticks without per-second notify().
+            // Live Update: progress bar segmented per exercise + status-bar chip.
             if (totalSets > 0) {
                 builder.setStyle(progressStyle(progress, totalSets))
                 builder.setShortCriticalText("${progress.doneSets}/$totalSets")
             }
-            builder.setContentText(
-                if (s.running) (setLabel ?: formatClock(s.elapsedSec))
-                else listOfNotNull(setLabel, formatClock(s.elapsedSec)).joinToString(" · ")
-            )
             builder.setRequestPromotedOngoing(true)
-            builder.setShowWhen(s.running)
-            builder.setUsesChronometer(s.running)
-            if (s.running) builder.setWhen(System.currentTimeMillis() - s.elapsedSec * 1000L)
-        } else {
-            builder.setContentText(listOfNotNull(setLabel, formatClock(s.elapsedSec)).joinToString(" · "))
         }
 
         return builder.build()

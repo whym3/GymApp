@@ -43,6 +43,18 @@ object Haptics {
         play(context, VibrationEffect.createWaveform(longArrayOf(0, 45, 90, 45), -1))
     }
 
+    /** Rising triple pulse — a new personal record. */
+    fun prCelebration(context: Context) {
+        play(
+            context,
+            VibrationEffect.createWaveform(
+                longArrayOf(0, 30, 70, 40, 70, 70),
+                intArrayOf(0, 110, 0, 180, 0, 255),
+                -1,
+            ),
+        )
+    }
+
     private fun play(context: Context, effect: VibrationEffect) {
         val v = vibrator(context) ?: return
         if (!v.hasVibrator()) return

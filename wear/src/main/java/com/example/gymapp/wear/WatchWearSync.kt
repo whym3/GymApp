@@ -75,7 +75,12 @@ object WatchWearSync {
             WearSync.PATH_WORKOUT_HISTORY, WearSync.PATH_WORKOUT_DETAIL,
             -> {
                 if (event.type == DataEvent.TYPE_DELETED) {
-                    if (event.dataItem.uri.path == WearSync.PATH_ACTIVE_WORKOUT) _activeWorkout.value = null
+                    when (event.dataItem.uri.path) {
+                        WearSync.PATH_ACTIVE_WORKOUT -> _activeWorkout.value = null
+                        // Phone saved/discarded from its own summary screen —
+                        // dismiss ours too instead of sitting on Save/Discard.
+                        WearSync.PATH_WORKOUT_SUMMARY -> _workoutSummary.value = null
+                    }
                 } else {
                     applyDataItem(event.dataItem.uri.path, event.dataItem.data)
                 }

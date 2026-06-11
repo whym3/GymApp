@@ -2,6 +2,13 @@ package com.example.gymapp
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -26,40 +33,62 @@ data class Routine(
     )
 }
 
-/** Persists user routines as JSON; exposes a Compose snapshot list. */
+/**
+ * Persists user routines as JSON; exposes a Compose snapshot list. Same
+ * threading contract as [WorkoutRepository]: in-memory mutations are immediate,
+ * file writes happen on IO behind a mutex.
+ */
 object RoutineRepository {
 
     private val _routines = mutableStateListOf<Routine>()
     val routines: List<Routine> get() = _routines
 
-    fun init(context: Context) {
-        reload(context)
-    }
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val writeMutex = Mutex()
 
-    /** (Re)load the current account's routines from disk. */
-    fun reload(context: Context) {
+    fun init(context: Context) {
+        // Blocking on purpose: runs once in onCreate and the first frame needs the data.
         _routines.clear()
         _routines.addAll(readFromDisk(context))
     }
 
+    /** (Re)load the current account's routines from disk. */
+    suspend fun reload(context: Context) {
+        val items = withContext(Dispatchers.IO) { readFromDisk(context) }
+        _routines.clear()
+        _routines.addAll(items)
+    }
+
     fun add(context: Context, routine: Routine) {
         _routines.add(0, routine)
-        writeToDisk(context)
+        persistAsync(context)
     }
 
     fun delete(context: Context, id: Long) {
         _routines.removeAll { it.id == id }
-        writeToDisk(context)
+        persistAsync(context)
     }
 
     fun update(context: Context, routine: Routine) {
         val i = _routines.indexOfFirst { it.id == routine.id }
-        if (i >= 0) { _routines[i] = routine; writeToDisk(context) }
+        if (i >= 0) { _routines[i] = routine; persistAsync(context) }
     }
 
     fun deleteAll(context: Context) {
         _routines.clear()
-        runCatching { file(context).delete() }
+        val f = file(context)
+        ioScope.launch { writeMutex.withLock { runCatching { f.delete() } } }
+    }
+
+    /** Snapshot the list + target file now (account may switch later), write on IO. */
+    private fun persistAsync(context: Context) {
+        val snapshot = _routines.toList()
+        val f = file(context)
+        ioScope.launch {
+            writeMutex.withLock {
+                runCatching { f.writeText(encode(snapshot)) }
+            }
+        }
     }
 
     fun byId(id: Long): Routine? = _routines.firstOrNull { it.id == id }
@@ -69,9 +98,9 @@ object RoutineRepository {
         return File(context.filesDir, "routines_$id.json")
     }
 
-    private fun writeToDisk(context: Context) {
+    private fun encode(routines: List<Routine>): String {
         val arr = JSONArray()
-        _routines.forEach { r ->
+        routines.forEach { r ->
             val exArr = JSONArray()
             r.exercises.forEach { ex ->
                 exArr.put(
@@ -88,7 +117,7 @@ object RoutineRepository {
                     .put("exercises", exArr)
             )
         }
-        runCatching { file(context).writeText(arr.toString()) }
+        return arr.toString()
     }
 
     private fun readFromDisk(context: Context): List<Routine> {

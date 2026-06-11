@@ -77,6 +77,10 @@ object WearSync {
      * is which of those the remote currently targets (mark-done / weight / reps
      * / add-set all act on it), and [currentWeight]/[currentReps] are that
      * target set's editable values, shown next to the +/- adjust controls.
+     *
+     * [elapsedSec]/[restSec] are correct *as of* [anchorMillis] (wall clock).
+     * The phone only pushes on structural changes; the watch advances both
+     * locally from the anchor, so no per-second Data Layer writes are needed.
      */
     data class ActiveWorkoutSnapshot(
         val running: Boolean,
@@ -89,6 +93,7 @@ object WearSync {
         val currentWeight: String = "",
         val currentReps: String = "",
         val currentSetType: SetType = SetType.NORMAL,
+        val anchorMillis: Long = 0L,
     )
 
     /** Glanceable recap shown on the watch right after a session ends, before it returns to idle. */
@@ -272,6 +277,7 @@ object WearSync {
             .put("currentWeight", s.currentWeight)
             .put("currentReps", s.currentReps)
             .put("currentSetType", s.currentSetType.name)
+            .put("anchorMillis", s.anchorMillis)
             .toString()
 
     fun decodeActiveWorkout(json: String): ActiveWorkoutSnapshot? = runCatching {
@@ -288,6 +294,7 @@ object WearSync {
             currentWeight = o.optString("currentWeight", ""),
             currentReps = o.optString("currentReps", ""),
             currentSetType = runCatching { SetType.valueOf(o.optString("currentSetType", "NORMAL")) }.getOrDefault(SetType.NORMAL),
+            anchorMillis = o.optLong("anchorMillis", 0L),
         )
     }.getOrNull()
 

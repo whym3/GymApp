@@ -3,6 +3,10 @@
 
     <uses-feature android:name="android.hardware.type.watch" />
     <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <!-- Workouts usually start from the phone while the watch screen is off
+         (activity paused) — without the background grant, starting the
+         Health Services exercise throws SecurityException. -->
+    <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <application

@@ -2,7 +2,9 @@ package com.example.gymapp
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -11,6 +13,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -22,16 +35,55 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.health.connect.client.PermissionController
+import com.example.gymapp.ui.theme.AppPalette
 import com.example.gymapp.ui.theme.BgColor
 import com.example.gymapp.ui.theme.GymAppTheme
+import com.example.gymapp.ui.theme.Motion
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.Locale
 
 enum class Screen {
     ONBOARDING, HOME, WORKOUT_LANDING, CREATE_ROUTINE, EDIT_ROUTINE, TEMPLATE_DETAIL,
     ACTIVE_WORKOUT, SUMMARY, HISTORY, WORKOUT_DETAIL, PROGRESS, PROFILE, HEART_RATE, STEPS
+}
+
+/** Coarse navigation depth, used to pick a forward (drill-in) vs back transition. */
+private fun navDepth(s: Screen): Int = when (s) {
+    Screen.ONBOARDING -> 0
+    Screen.HOME, Screen.WORKOUT_LANDING, Screen.HISTORY, Screen.PROGRESS -> 1
+    Screen.TEMPLATE_DETAIL, Screen.WORKOUT_DETAIL, Screen.PROFILE, Screen.HEART_RATE,
+    Screen.STEPS, Screen.CREATE_ROUTINE, Screen.EDIT_ROUTINE, Screen.ACTIVE_WORKOUT -> 2
+    Screen.SUMMARY -> 3
+}
+
+/**
+ * Direction-aware screen transitions: session screens rise in like a modal,
+ * drill-ins push from the right, going back pops to the right, and sibling
+ * tabs fade through with a whisper of scale. All springs, never tweens.
+ */
+private fun AnimatedContentTransitionScope<Screen>.screenTransition(): ContentTransform {
+    val toModal = targetState == Screen.ACTIVE_WORKOUT || targetState == Screen.SUMMARY
+    val fromModal = initialState == Screen.ACTIVE_WORKOUT || initialState == Screen.SUMMARY
+    val toDepth = navDepth(targetState)
+    val fromDepth = navDepth(initialState)
+    return when {
+        toModal -> (slideInVertically(Motion.spatialOffset) { it / 5 } + fadeIn(Motion.effectsFloat))
+            .togetherWith(fadeOut(Motion.effectsFloat))
+        fromModal -> fadeIn(Motion.effectsFloat)
+            .togetherWith(slideOutVertically(Motion.spatialOffset) { it / 5 } + fadeOut(Motion.effectsFloat))
+        toDepth > fromDepth -> (slideInHorizontally(Motion.spatialOffset) { it / 4 } + fadeIn(Motion.effectsFloat))
+            .togetherWith(slideOutHorizontally(Motion.spatialOffset) { -it / 6 } + fadeOut(Motion.effectsFloat))
+        toDepth < fromDepth -> (slideInHorizontally(Motion.spatialOffset) { -it / 6 } + fadeIn(Motion.effectsFloat))
+            .togetherWith(slideOutHorizontally(Motion.spatialOffset) { it / 4 } + fadeOut(Motion.effectsFloat))
+        else -> (fadeIn(Motion.effectsFloat) + scaleIn(Motion.spatialFloat, initialScale = 0.96f))
+            .togetherWith(fadeOut(Motion.effectsFloat))
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -42,6 +94,14 @@ class MainActivity : ComponentActivity() {
         PhoneWearSync.init(applicationContext)
         WorkoutRepository.init(applicationContext)
         RoutineRepository.init(applicationContext)
+        // Seed the palette before the first composition so frame one already has
+        // the right theme; later flips are applied by GymAppTheme's SideEffect.
+        AppPalette.dark = when (ThemeStore.mode) {
+            ThemeStore.Mode.LIGHT -> false
+            ThemeStore.Mode.DARK -> true
+            ThemeStore.Mode.SYSTEM ->
+                (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        }
         enableEdgeToEdge()
         setContent {
             val dark = when (ThemeStore.mode) {
@@ -119,6 +179,11 @@ fun GymApp() {
     val inSession = timerState.active
     var sessionTitle by remember { mutableStateOf("Workout") }
     var finishedElapsed by remember { mutableIntStateOf(0) }
+    // Rest countdown, anchored to a monotonic deadline; `rest` is the displayed
+    // whole-second remainder, derived by the effect below. `restTotalMs` is the
+    // full span of the current rest (grows on +15s) for the pill's drain ring.
+    var restDeadlineMs by remember { mutableStateOf<Long?>(null) }
+    var restTotalMs by remember { mutableStateOf<Long?>(null) }
     var rest by remember { mutableStateOf<Int?>(null) }
     var showSearch by remember { mutableStateOf(false) }
     var sessionStartMillis by remember { mutableLongStateOf(0L) }
@@ -182,14 +247,33 @@ fun GymApp() {
         if (granted) miBand.start() else bleLauncher.launch(blePermissions)
     }
 
-    // Rest countdown
-    val restNow = rest
-    LaunchedEffect(restNow) {
-        if (restNow != null && restNow > 0) {
-            delay(1000L); rest = restNow - 1
-        } else if (restNow == 0) {
-            rest = null
+    // Rest countdown. Deadline-anchored: +15s taps move the deadline instead of
+    // restarting a 1s sleep, so the remaining time never stretches or drifts.
+    fun startRest(seconds: Int) {
+        restDeadlineMs = SystemClock.elapsedRealtime() + seconds * 1000L
+        restTotalMs = seconds * 1000L
+    }
+    fun extendRest(seconds: Int) {
+        val now = SystemClock.elapsedRealtime()
+        restDeadlineMs = maxOf(restDeadlineMs ?: now, now) + seconds * 1000L
+        restTotalMs = (restTotalMs ?: 0L) + seconds * 1000L
+    }
+    fun clearRest() {
+        restDeadlineMs = null
+        restTotalMs = null
+        rest = null
+    }
+    LaunchedEffect(restDeadlineMs) {
+        val deadline = restDeadlineMs ?: run { rest = null; return@LaunchedEffect }
+        while (true) {
+            val remainingMs = deadline - SystemClock.elapsedRealtime()
+            if (remainingMs <= 0) break
+            rest = ((remainingMs + 999) / 1000L).toInt()
+            delay(250L)
         }
+        rest = null
+        restDeadlineMs = null
+        restTotalMs = null
     }
 
     // Live heart rate during a session. Two real-time broadcast sources feed it:
@@ -236,10 +320,15 @@ fun GymApp() {
         }
     }
 
-    // Refresh Health Connect dashboard whenever we land on Home/Profile
+    // Refresh the Health Connect dashboard when landing on Home/Profile, then
+    // keep re-polling while the user stays there — without this the stats
+    // (kcal especially) freeze at whatever was synced on screen entry.
     LaunchedEffect(screen, UserStore.loggedIn) {
         if (UserStore.loggedIn && (screen == Screen.HOME || screen == Screen.PROFILE)) {
-            loadDashboard()
+            while (true) {
+                loadDashboard()
+                delay(60_000L)
+            }
         }
     }
 
@@ -256,7 +345,7 @@ fun GymApp() {
     }
     fun beginSession(title: String, seed: List<WorkoutExercise>, openSearch: Boolean) {
         exercises.clear(); exercises.addAll(seed)
-        rest = null
+        clearRest()
         sessionTitle = title
         sessionStartMillis = System.currentTimeMillis()
         liveHeartRate = null
@@ -287,7 +376,7 @@ fun GymApp() {
         sets[si] = sets[si].copy(done = nowDone)
         exercises[ei] = ex.copy(sets = sets)
         if (nowDone) {
-            rest = 90
+            startRest(90)
             Haptics.repComplete(context)  // soft tap on set complete
         }
     }
@@ -360,13 +449,14 @@ fun GymApp() {
         }
         // Going inactive makes the service tear down its own notification & stop.
         WorkoutTimer.stop()
-        rest = null
+        clearRest()
         PhoneWearSync.clearActiveWorkout(context)   // watch goes back to its idle screen
         screen = Screen.SUMMARY
     }
     fun endSession() {
         WorkoutTimer.stop()               // service observes this and removes the notification
-        exercises.clear(); rest = null; summaryData = null; finishedElapsed = 0
+        SessionJournal.clear(context)     // session over — drop the crash-recovery journal
+        exercises.clear(); clearRest(); summaryData = null; finishedElapsed = 0
         liveHeartRate = null; finishedAvgHr = null; watchSelectedExerciseIndex = null
         liveWorkoutSteps = null; liveWorkoutCalories = null; hrSamples.clear()
         miBand.stop()
@@ -421,6 +511,46 @@ fun GymApp() {
         }
     }
 
+    // Restore a session the OS killed mid-workout. The journal only exists
+    // between beginSession() and endSession(), so hitting this path means the
+    // process died with a workout open.
+    LaunchedEffect(Unit) {
+        if (WorkoutTimer.state.value.active || !UserStore.loggedIn) return@LaunchedEffect
+        val restored = withContext(Dispatchers.IO) { SessionJournal.restore(context) } ?: return@LaunchedEffect
+        if (WorkoutTimer.state.value.active) return@LaunchedEffect   // a session started while we read
+        exercises.clear(); exercises.addAll(restored.exercises)
+        sessionTitle = restored.title
+        sessionStartMillis = restored.startMillis
+        hrSamples.clear()
+        WorkoutTimer.restore(restored.elapsedSec, restored.running)
+        WorkoutService.start(context)
+        startHeartRate()
+        screen = Screen.ACTIVE_WORKOUT
+        Toast.makeText(context, "Workout restored", Toast.LENGTH_SHORT).show()
+    }
+
+    // Journal the live session (debounced) so the restore above has data.
+    // Keyed off content/title/running — not the 1 Hz elapsed tick; restore()
+    // credits the running wall time from the save timestamp instead.
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            if (timerState.active) Triple(exercises.toList(), sessionTitle, timerState.running) else null
+        }
+            .distinctUntilChanged()
+            .collectLatest { snap ->
+                if (snap == null) return@collectLatest
+                delay(750L)   // let typing bursts settle
+                SessionJournal.save(
+                    context,
+                    title = snap.second,
+                    startMillis = sessionStartMillis,
+                    elapsedSec = WorkoutTimer.elapsed,
+                    running = snap.third,
+                    exercises = snap.first,
+                )
+            }
+    }
+
     // Finish requested from the notification action
     LaunchedEffect(finishRequested) {
         if (finishRequested && timerState.active) finishWorkout()
@@ -442,9 +572,12 @@ fun GymApp() {
         }
     }
 
-    // Mirror the in-progress session to the watch on every change, including
-    // which exercise/set the remote currently targets (see watchCurrentTarget)
-    // and that set's editable values, so the watch can show +/- controls for them.
+    // Mirror the in-progress session to the watch on every *structural* change,
+    // including which exercise/set the remote currently targets (see
+    // watchCurrentTarget) and that set's editable values. Ticking values are
+    // deliberately absent from the effect key — elapsed/rest get stamped in at
+    // push time together with a wall-clock anchor, and the watch advances both
+    // locally from it, so nothing is written to the Data Layer once a second.
     val activeSnapshot = if (inSession) {
         val target = watchCurrentTarget()
         val targetEx = target?.let { exercises.getOrNull(it.first) }
@@ -454,10 +587,10 @@ fun GymApp() {
         } else activeWorkoutLabel(exercises)
         WearSync.ActiveWorkoutSnapshot(
             running = timerState.running,
-            elapsedSec = timerState.elapsedSec,
+            elapsedSec = 0,    // stamped at push time
             exerciseName = exerciseName,
             setProgress = setProgress,
-            restSec = rest,
+            restSec = null,    // stamped at push time
             exercises = exercises.map { it.name },
             currentExerciseIndex = target?.first ?: 0,
             currentWeight = targetSet?.weight.orEmpty(),
@@ -465,8 +598,20 @@ fun GymApp() {
             currentSetType = targetSet?.type ?: SetType.NORMAL,
         )
     } else null
-    LaunchedEffect(activeSnapshot) {
-        activeSnapshot?.let { PhoneWearSync.pushActiveWorkout(context, it) }
+    LaunchedEffect(activeSnapshot, restDeadlineMs) {
+        activeSnapshot?.let { snapshot ->
+            val restRemaining = restDeadlineMs?.let { d ->
+                (((d - SystemClock.elapsedRealtime()) + 999) / 1000L).toInt().takeIf { it > 0 }
+            }
+            PhoneWearSync.pushActiveWorkout(
+                context,
+                snapshot.copy(
+                    elapsedSec = WorkoutTimer.elapsed,
+                    restSec = restRemaining,
+                    anchorMillis = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
     // Mirror exercise/set progress to WorkoutProgress so the Live Update
@@ -492,8 +637,8 @@ fun GymApp() {
                 ActiveWorkoutCommand.MARK_SET_DONE -> markCurrentSetDone()
                 ActiveWorkoutCommand.FINISH_WORKOUT -> finishWorkout()
                 ActiveWorkoutCommand.ADD_SET -> watchCurrentTarget()?.let { (ei, _) -> addSet(ei) }
-                ActiveWorkoutCommand.ADD_REST -> rest = (rest ?: 0) + 15
-                ActiveWorkoutCommand.SKIP_REST -> rest = null
+                ActiveWorkoutCommand.ADD_REST -> extendRest(15)
+                ActiveWorkoutCommand.SKIP_REST -> clearRest()
             }
         }
     }
@@ -538,7 +683,12 @@ fun GymApp() {
     Box(modifier = Modifier.fillMaxSize().background(BgColor)) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
-                when (screen) {
+                AnimatedContent(
+                    targetState = screen,
+                    transitionSpec = { screenTransition() },
+                    label = "screen",
+                ) { current ->
+                when (current) {
                     Screen.ONBOARDING -> OnboardingScreen(
                         manager = manager,
                         onComplete = { name, email, gender, heightCm, weightKg, birthdayMillis ->
@@ -546,14 +696,18 @@ fun GymApp() {
                             if (heightCm != null || weightKg != null || birthdayMillis != null) {
                                 UserStore.updateProfile(name, email, heightCm, weightKg, birthdayMillis, gender)
                             }
-                            WorkoutRepository.reload(context)
-                            RoutineRepository.reload(context)
+                            scope.launch {
+                                WorkoutRepository.reload(context)
+                                RoutineRepository.reload(context)
+                            }
                             screen = Screen.HOME
                         },
                         onLogin = {
                             UserStore.login()
-                            WorkoutRepository.reload(context)        // restore this account's data
-                            RoutineRepository.reload(context)
+                            scope.launch {
+                                WorkoutRepository.reload(context)    // restore this account's data
+                                RoutineRepository.reload(context)
+                            }
                             screen = Screen.HOME
                         },
                     )
@@ -619,12 +773,12 @@ fun GymApp() {
 
                     Screen.ACTIVE_WORKOUT -> ActiveWorkoutScreen(
                         exercises = exercises,
-                        elapsed = timerState.elapsedSec,
                         running = timerState.running,
                         heartRate = liveHeartRate,
                         steps = liveWorkoutSteps,
                         calories = liveWorkoutCalories,
-                        rest = rest,
+                        restDeadlineMs = restDeadlineMs,
+                        restTotalMs = restTotalMs,
                         onFinish = { finishWorkout() },
                         onTogglePause = { WorkoutTimer.toggle() },
                         onOpenSearch = { showSearch = true },
@@ -651,8 +805,8 @@ fun GymApp() {
                             val ex = exercises[ei]
                             if (ex.sets.size > 1) exercises[ei] = ex.copy(sets = ex.sets.toMutableList().also { it.removeAt(si) })
                         },
-                        onAddRest = { rest = (rest ?: 0) + 15 },
-                        onSkipRest = { rest = null },
+                        onAddRest = { extendRest(15) },
+                        onSkipRest = { clearRest() },
                     )
 
                     Screen.SUMMARY -> summaryData?.let { data ->
@@ -706,6 +860,7 @@ fun GymApp() {
                             screen = Screen.ONBOARDING
                         },
                     )
+                }
                 }
             }
 

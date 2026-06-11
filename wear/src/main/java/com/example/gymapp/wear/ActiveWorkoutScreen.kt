@@ -1,8 +1,13 @@
 package com.example.gymapp.wear
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationEndReason
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +33,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,8 +42,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
+import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CompactChip
@@ -63,6 +75,7 @@ import com.example.gymapp.WearSync
 import com.example.gymapp.formatClock
 import com.google.android.horologist.compose.ambient.AmbientAware
 import com.google.android.horologist.compose.ambient.AmbientState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -76,6 +89,35 @@ internal fun ActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapshot, onWris
     }
 }
 
+/** Seconds the snapshot's clocks have aged since the phone stamped them. */
+private fun anchorDriftSec(workout: WearSync.ActiveWorkoutSnapshot, nowMs: Long): Int =
+    if (workout.anchorMillis > 0) ((nowMs - workout.anchorMillis) / 1000L).toInt().coerceAtLeast(0) else 0
+
+private fun liveElapsedSec(workout: WearSync.ActiveWorkoutSnapshot, nowMs: Long): Int =
+    workout.elapsedSec + if (workout.running) anchorDriftSec(workout, nowMs) else 0
+
+private fun liveRestSec(workout: WearSync.ActiveWorkoutSnapshot, nowMs: Long): Int? =
+    workout.restSec?.minus(anchorDriftSec(workout, nowMs))?.takeIf { it > 0 }
+
+/**
+ * Elapsed + rest advanced locally from the snapshot's wall-clock anchor. The
+ * phone only pushes on structural changes; this ticker is what keeps the
+ * clocks moving between pushes without per-second Data Layer writes.
+ */
+@Composable
+private fun rememberLiveTimers(workout: WearSync.ActiveWorkoutSnapshot): Pair<Int, Int?> {
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    val ticking = workout.running || workout.restSec != null
+    LaunchedEffect(ticking, workout.anchorMillis) {
+        nowMs = System.currentTimeMillis()
+        while (ticking) {
+            delay(250L)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+    return liveElapsedSec(workout, nowMs) to liveRestSec(workout, nowMs)
+}
+
 @Composable
 private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapshot, onWristBpm: Int?) {
     val context = LocalContext.current
@@ -83,6 +125,9 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
     val s = rememberScreenInfo()
     val listState = rememberScalingLazyListState()
     var pickingExercise by remember { mutableStateOf(false) }
+    val (elapsedSec, restSec) = rememberLiveTimers(workout)
+    val rotaryFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { rotaryFocus.requestFocus() }
 
     if (pickingExercise) {
         ExercisePickerScreen(
@@ -104,7 +149,9 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
     ) {
         ScalingLazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .rotaryScrollable(RotaryScrollableDefaults.behavior(listState), rotaryFocus),
             contentPadding = PaddingValues(horizontal = s.hPad),
             verticalArrangement = Arrangement.spacedBy(s.spacing),
         ) {
@@ -119,7 +166,7 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        formatClock(workout.elapsedSec),
+                        formatClock(elapsedSec),
                         fontSize = s.timerSp,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
@@ -178,7 +225,7 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
             }
 
             // Rest timer — amber tint distinguishes it as a distinct mode
-            workout.restSec?.let { rest ->
+            restSec?.let { rest ->
                 item {
                     Column(
                         modifier = Modifier
@@ -317,25 +364,12 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
                 )
             }
 
-            // Long-press to avoid accidental set completion mid-lift; gradient matches idle hero
+            // Hold-to-confirm with a visible fill — deliberate enough to never
+            // fire from a knock mid-lift, and the fill + escalating ticks tell
+            // the wearer exactly how long is left. Gradient matches idle hero.
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(Brush.linearGradient(listOf(AccentBrightColor, AccentColor)))
-                        .combinedClickable(
-                            onClick = {},
-                            onLongClick = {
-                                Haptics.repComplete(context)
-                                scope.launch { WatchWearSync.sendMarkSetDone(context) }
-                            },
-                            onLongClickLabel = "Mark set done",
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("Hold to mark done", color = Color.White, fontWeight = FontWeight.Bold, fontSize = s.titleSp)
+                HoldToCompleteButton(s) {
+                    scope.launch { WatchWearSync.sendMarkSetDone(context) }
                 }
             }
 
@@ -396,6 +430,82 @@ private fun InteractiveActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapsh
     }
 }
 
+private const val HOLD_TO_COMPLETE_MS = 650f
+
+/**
+ * Hold-to-confirm "mark set done". A bright fill sweeps across while held,
+ * with haptic ticks at each third; releasing early drains it back. Built on a
+ * plain Box — Wear material Chips consume the pointer-down before an outer
+ * gesture detector's timer can start.
+ */
+@Composable
+private fun HoldToCompleteButton(s: ScreenInfo, onComplete: () -> Unit) {
+    val context = LocalContext.current
+    val progress = remember { Animatable(0f) }
+    var pressed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            Haptics.tick(context)
+            var milestone = 0
+            val result = progress.animateTo(
+                1f,
+                tween(
+                    durationMillis = (HOLD_TO_COMPLETE_MS * (1f - progress.value)).toInt(),
+                    easing = LinearEasing,
+                ),
+            ) {
+                val third = (value * 3).toInt()
+                if (third > milestone) {
+                    milestone = third
+                    Haptics.tick(context)
+                }
+            }
+            if (result.endReason == AnimationEndReason.Finished) {
+                pressed = false
+                progress.snapTo(0f)
+                Haptics.repComplete(context)
+                onComplete()
+            }
+        } else {
+            progress.animateTo(0f, spring(stiffness = 700f))
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(Brush.linearGradient(listOf(AccentBrightColor, AccentColor)))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        tryAwaitRelease()
+                        pressed = false
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .drawBehind {
+                    drawRect(
+                        color = Color.White.copy(alpha = 0.30f),
+                        size = Size(size.width * progress.value, size.height),
+                    )
+                },
+        )
+        Text(
+            if (progress.value > 0.02f) "Keep holding…" else "Hold to mark done",
+            color = Color.White, fontWeight = FontWeight.Bold, fontSize = s.titleSp,
+        )
+    }
+}
+
 /**
  * ± buttons for nudging weight / reps. Custom circular Box instead of CompactButton to
  * guarantee a 40–44 dp touch target (CompactButton's 32 dp height is below the Wear OS minimum).
@@ -452,6 +562,8 @@ internal fun ExercisePickerScreen(
 ) {
     val s = rememberScreenInfo()
     val listState = rememberScalingLazyListState()
+    val rotaryFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { rotaryFocus.requestFocus() }
 
     Scaffold(
         timeText = { TimeText() },
@@ -460,7 +572,9 @@ internal fun ExercisePickerScreen(
     ) {
         ScalingLazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .rotaryScrollable(RotaryScrollableDefaults.behavior(listState), rotaryFocus),
             contentPadding = PaddingValues(horizontal = s.hPad),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -498,6 +612,9 @@ internal fun ExercisePickerScreen(
  */
 @Composable
 private fun AmbientActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapshot, onWristBpm: Int?) {
+    // No ticker here — ambient repaints arrive from the system (~1/min), so
+    // computing the live values per recomposition is exactly the right cadence.
+    val nowMs = System.currentTimeMillis()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -506,7 +623,7 @@ private fun AmbientActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapshot, 
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            formatClock(workout.elapsedSec),
+            formatClock(liveElapsedSec(workout, nowMs)),
             fontSize = 34.sp,
             fontWeight = FontWeight.Bold,
             color = DimColor,
@@ -515,7 +632,7 @@ private fun AmbientActiveWorkoutScreen(workout: WearSync.ActiveWorkoutSnapshot, 
         Spacer(Modifier.height(6.dp))
         Text(workout.exerciseName, color = DimColor, textAlign = TextAlign.Center)
         Text(workout.setProgress, color = DimColor, textAlign = TextAlign.Center)
-        workout.restSec?.let { rest ->
+        liveRestSec(workout, nowMs)?.let { rest ->
             Text("Rest ${formatClock(rest)}", color = DimColor, textAlign = TextAlign.Center)
         }
         onWristBpm?.let { bpm ->

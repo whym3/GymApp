@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 
 private val DarkScheme = darkColorScheme(
@@ -43,7 +44,9 @@ fun GymAppTheme(
     dark: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    if (AppPalette.dark != dark) AppPalette.dark = dark
+    // State write deferred out of the composition body (a "backwards write"
+    // there invalidates this scope mid-compose and forces an extra pass).
+    SideEffect { if (AppPalette.dark != dark) AppPalette.dark = dark }
     MaterialTheme(
         colorScheme = if (dark) DarkScheme else LightScheme,
         typography = Typography,
